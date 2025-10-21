@@ -238,6 +238,64 @@ See `docs/design/CEDAR.md` for policy authoring details.
 
 ---
 
+## MCP (Model Context Protocol) Integration
+
+Leash includes built-in support for observing and enforcing policies on MCP tool calls made by AI agents.
+
+**Components:**
+- `internal/proxy/mcp_observer.go` - Intercepts and parses MCP JSON-RPC/SSE traffic
+- `internal/proxy/proxy.go` - Evaluates MCP policies via `PolicyChecker` interface
+- Cedar `Action::"McpCall"` with `MCP::Server` and `MCP::Tool` resources
+
+**Enforcement Flow:**
+1. Agent makes HTTP request to MCP server (e.g., `mcp.context7.com`)
+2. eBPF LSM checks network policy, allows if server is permitted
+3. MITM proxy intercepts TLS connection, reads JSON-RPC payload
+4. MCP observer parses `method` field (e.g., `tools/call`) and extracts `params.name` (tool name)
+5. Policy checker evaluates MCP policy rules: `CheckMCPCall(server, tool)`
+6. If denied, proxy returns `403 Forbidden` with denial reason
+7. If allowed, proxy forwards request to upstream server
+8. Events logged to WebSocket stream with MCP metadata (server, tool, method)
+
+**V1 Policy Semantics:**
+
+Cedar policies support three MCP resource patterns:
+
+1. **Server-level deny** - Blocks all MCP traffic to a server:
+   ```cedar
+   forbid (principal, action == Action::"McpCall", resource)
+   when { resource in [ MCP::Server::"mcp.untrusted.com" ] };
+   ```
+   Transpiles to: `deny net.send mcp.untrusted.com` + MCP policy rule
+
+2. **Tool-specific deny** - Blocks a specific tool on a server:
+   ```cedar
+   forbid (principal, action == Action::"McpCall", resource == MCP::Tool::"resolve-library-id")
+   when { resource in [ MCP::Server::"mcp.context7.com" ] };
+   ```
+   Transpiles to: MCP policy rule (server + tool combination)
+
+3. **Informational permit** - Recorded but not enforced (V1):
+   ```cedar
+   permit (principal, action == Action::"McpCall", resource == MCP::Tool::"safe-search")
+   when { resource in [ MCP::Server::"mcp.internal" ] };
+   ```
+   Generates linter warning `mcp_allow_noop`
+
+**Current Limitations:**
+- Only `forbid` is enforced; `permit` is informational (deny-by-default not yet implemented for MCP)
+- Tool-specific policies require both `MCP::Tool` and `MCP::Server` resources
+- MCP observer supports JSON-RPC and SSE transports (for agent↔MCP server communication)
+
+**Control UI Integration:**
+
+The Control UI automatically populates structured `server` and `tool` fields when generating policies from observed MCP events:
+- Frontend extracts `server=<host>` and `tool=<name>` from event details
+- Backend prefers structured fields over parsing the free-form `name` field
+- UI requires both server and tool for MCP policy generation (prevents accidental server-wide blocks)
+
+---
+
 ## Modes: Record → Shadow → Enforce
 
 Leash supports three operational modes, controlled via the `default_policy` BPF map:
@@ -308,23 +366,18 @@ Leash assumes:
 
 ## Future Directions
 
-**1. MCP Integration:**
-- Cedar policies with `context.mcp.approved` gates
-- Control plane for just-in-time capability grants
-- Composite identity (bot + human delegator)
-
-**2. Dynamic Policy Synthesis:**
+**1. Dynamic Policy Synthesis:**
 - Learn policies from Record mode events
 - Suggest policy rules based on observed behavior
 - `leash suggest --from events.log --output policy.cedar`
 
-**3. Cross-Container Policies:**
+**2. Cross-Container Policies:**
 - Network policies between containers (east-west traffic)
 - Multi-agent coordination policies (agent A can call agent B's API)
 
-**4. Hardware-Assisted Enforcement:**
-- Intel SGX enclaves for Leash manager (protect policy from kernel)
-- ARM Pointer Authentication (prevent ROP attacks in agent)
+**3. Enhanced MCP Capabilities:**
+- Deny-by-default MCP enforcement with explicit permit rules
+- Human-in-the-loop approval workflows
 
 ---
 

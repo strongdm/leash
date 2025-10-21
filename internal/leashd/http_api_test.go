@@ -489,6 +489,98 @@ func TestAddPolicyFromActionDetectsConflict(t *testing.T) {
 	}
 }
 
+func TestPoliciesPatchAddMCPSpecificTool(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	policyPath := filepath.Join(tmpDir, "policies.cedar")
+
+	mux := http.NewServeMux()
+	mgr := policy.NewManager(nil, nil)
+	api := newPolicyAPI(mgr, policyPath, nil)
+	api.register(mux)
+
+	body := map[string]any{
+		"add": []map[string]any{
+			{
+				"effect": "forbid",
+				"action": map[string]any{
+					"type":   "mcp/deny",
+					"name":   "mcp.deny method=tools/call", // description; structured fields carry server/tool
+					"server": "mcp.context7.com",
+					"tool":   "resolve-library-id",
+				},
+			},
+		},
+	}
+	payload, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPatch, "/api/policies", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("patch policies returned %d: %s", w.Code, w.Body.String())
+	}
+
+	// Response includes a consolidated Cedar string; assert it targets the specific tool+server
+	var resp struct {
+		CedarFile string `json:"cedarFile"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	want := `forbid (principal, action == Action::"McpCall", resource == MCP::Tool::"resolve-library-id") when { resource in [ MCP::Server::"mcp.context7.com" ] };`
+	if !strings.Contains(resp.CedarFile, want) {
+		t.Fatalf("expected cedarFile to contain tool-specific policy. want=%q\ncedarFile=%q", want, resp.CedarFile)
+	}
+}
+
+func TestAddPolicyFromActionMCPSpecificTool(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	policyPath := filepath.Join(tmpDir, "policies.cedar")
+
+	mux := http.NewServeMux()
+	mgr := policy.NewManager(nil, nil)
+	api := newPolicyAPI(mgr, policyPath, nil)
+	api.register(mux)
+
+	body := map[string]any{
+		"effect": "permit",
+		"action": map[string]any{
+			"type":   "mcp/allow",
+			"name":   "mcp.allow method=tools/call", // description; structured fields carry server/tool
+			"server": "mcp.context7.com",
+			"tool":   "resolve-library-id",
+		},
+	}
+	payload, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/api/policies/add-from-action", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("add-from-action returned %d: %s", w.Code, w.Body.String())
+	}
+
+	// Response includes cedarFile
+	var resp struct {
+		CedarRuntime string `json:"cedarRuntime"`
+		CedarFile    string `json:"cedarFile"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	want := `permit (principal, action == Action::"McpCall", resource == MCP::Tool::"resolve-library-id") when { resource in [ MCP::Server::"mcp.context7.com" ] };`
+	if !strings.Contains(resp.CedarRuntime, want) {
+		t.Fatalf("expected cedarRuntime to contain tool-specific policy. want=%q\ncedarRuntime=%q", want, resp.CedarRuntime)
+	}
+}
+
 func TestPoliciesPatchRejectsConflict(t *testing.T) {
 	t.Parallel()
 

@@ -55,6 +55,7 @@ Statements are evaluated in the order they appear. The first matching rule
 | `Action::"ProcessExec"`          | `Dir::"/path/"`, `File::"/path"`                    | Path‑only matching; argument filtering not yet available. |
 | `Action::"NetworkConnect"`       | `Host::"example.com"`, `Host::"*.domain"`, `Host::"ip:port"` | Wildcard hosts support a leading `*.` only. Ports optional. |
 | `Action::"HttpRewrite"`          | `Host::"example.com"`                               | Requires `context.header` and `context.value`. |
+| `Action::"McpCall"`              | `MCP::Server::"host"`, `MCP::Tool::"tool-name"`     | V1: `forbid` enforced; `permit` informational only. |
 
 ### Action→IR Mapping
 
@@ -66,6 +67,7 @@ Leash IR and logs use stable operation strings. Actions map as follows:
 - `Action::"ProcessExec"` → `proc.exec`
 - `Action::"NetworkConnect"` → `net.send`
 - `Action::"HttpRewrite"` → `http.rewrite`
+- `Action::"McpCall"` → `mcp.*` (MCP policy rules)
 
 Notes:
 - Directory resources must end with `/`. The transpiler normalises this; the linter warns when missing.
@@ -184,6 +186,67 @@ permit (
 
 Each matching request to `api.example.com` receives the specified header and value before being forwarded upstream.
 
+## MCP (Model Context Protocol) Examples
+
+Leash monitors and enforces policies on MCP tool calls made by AI agents. MCP
+policies use `Action::"McpCall"` with `MCP::Server` and `MCP::Tool` resources.
+
+### V1 Enforcement Limitations
+
+- **Deny-only enforcement**: `forbid` statements are enforced at runtime; `permit` statements are informational and generate linter warnings.
+- **Server-level denies**: Denying an `MCP::Server` blocks all network connectivity to that host (transpiles to `net.send` deny).
+- **Tool-specific denies**: Denying a specific `MCP::Tool` on an `MCP::Server` requires both resources; the proxy enforces tool-level access control.
+
+### Block All Access to an MCP Server
+
+Prevent any MCP communication with a specific server:
+
+```cedar
+forbid (
+    principal,
+    action == Action::"McpCall",
+    resource
+) when {
+    resource in [ MCP::Server::"mcp.untrusted.com" ]
+};
+```
+
+This transpiles to a network deny rule (`net.send mcp.untrusted.com`) and an MCP
+policy rule blocking all tools on that server.
+
+### Block a Specific Tool on a Server
+
+Deny access to a specific MCP tool while allowing others:
+
+```cedar
+forbid (
+    principal,
+    action == Action::"McpCall",
+    resource == MCP::Tool::"resolve-library-id"
+) when {
+    resource in [ MCP::Server::"mcp.context7.com" ]
+};
+```
+
+The proxy will allow other tools on `mcp.context7.com` but deny calls to `resolve-library-id`.
+
+### Informational Permit (V1)
+
+In v1, `permit` on `McpCall` is recorded but not enforced:
+
+```cedar
+permit (
+    principal,
+    action == Action::"McpCall",
+    resource == MCP::Tool::"safe-search"
+) when {
+    resource in [ MCP::Server::"mcp.internal" ]
+};
+```
+
+This generates a linter warning (`mcp_allow_noop`) to indicate that allow rules are
+not yet enforced. Use permit statements for documentation and future compatibility.
+
 ## Example Policy File
 
 A small end-to-end policy might look like:
@@ -209,6 +272,10 @@ when { resource in [ Host::"api.internal" , Host::"db.internal:5432" ] };
 
 forbid (principal, action == Action::"NetworkConnect", resource)
 when { resource in [ Host::"*.facebook.com" ] };
+
+// MCP tool access control
+forbid (principal, action == Action::"McpCall", resource == MCP::Tool::"execute-shell")
+when { resource in [ MCP::Server::"mcp.example.com" ] };
 
 // Inject a header for internal API calls
 permit (principal, action == Action::"HttpRewrite", resource == Host::"api.internal")

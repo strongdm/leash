@@ -147,7 +147,7 @@ const ActionRow = memo(({
   action: Action;
   isPending: boolean;
   isAdded: boolean;
-  onAddPolicy: (action: { id: string; type: ActionType; name: string }, effect: "permit" | "forbid") => void;
+  onAddPolicy: (action: { id: string; type: ActionType; name: string; server?: string; tool?: string }, effect: "permit" | "forbid") => void;
 }) => {
   const repeats = action.repeatCount ?? 1;
 
@@ -215,12 +215,16 @@ const ActionRow = memo(({
                 className="text-green-400 hover:text-green-300 hover:bg-green-500/10 h-7 w-7"
                 aria-label="Add Allow"
                 onClick={() => onAddPolicy(action, "permit")}
-                disabled={isPending}
+                disabled={isPending || (action.type === "mcp/call" && !action.tool)}
               >
                 {isAdded ? <Check className="size-4" /> : <Check className="size-4" />}
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Add Allow</TooltipContent>
+            <TooltipContent>
+              {action.type === "mcp/call" && !action.tool
+                ? "Pick a tools/call event with a specific tool name"
+                : "Add Allow"}
+            </TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -230,12 +234,16 @@ const ActionRow = memo(({
                 className="text-red-400 hover:text-red-300 hover:bg-red-500/10 h-7 w-7"
                 aria-label="Add Deny"
                 onClick={() => onAddPolicy(action, "forbid")}
-                disabled={isPending}
+                disabled={isPending || (action.type === "mcp/call" && !action.tool)}
               >
                 <X className="size-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Add Deny</TooltipContent>
+            <TooltipContent>
+              {action.type === "mcp/call" && !action.tool
+                ? "Pick a tools/call event with a specific tool name"
+                : "Add Deny"}
+            </TooltipContent>
           </Tooltip>
         </div>
       </td>
@@ -508,13 +516,50 @@ export function ActionsStream({ instanceId, onPolicyMutated }: { instanceId?: st
   const hasActions = state.recentActions.length > 0;
 
   // Memoized callback to prevent row re-renders
-  const onAddPolicy = useCallback(async (action: { id: string; type: ActionType; name: string }, effect: "permit" | "forbid") => {
+  const extractToken = (text: string | undefined | null, key: string): string | undefined => {
+    const s = String(text ?? "").trim();
+    if (!s) return undefined;
+    const parts = s.split(/\s+/);
+    for (const p of parts) {
+      const idx = p.indexOf("=");
+      if (idx < 0) continue;
+      const k = p.slice(0, idx).toLowerCase();
+      if (k !== key.toLowerCase()) continue;
+      let v = p.slice(idx + 1).trim();
+      v = v.replace(/^\[|\]$/g, "");
+      v = v.replace(/^['"]|['"]$/g, "");
+      if (v) return v;
+    }
+    return undefined;
+  };
+
+  const onAddPolicy = useCallback(async (action: { id: string; type: ActionType; name: string; server?: string; tool?: string }, effect: "permit" | "forbid") => {
     setPendingId(action.id);
     try {
+      // For MCP tool calls, require both server and tool; derive from detail if missing
+      const server = action.server || extractToken(action.name, "server");
+      const tool = action.tool || extractToken(action.name, "tool");
+      const isMcpCall = action.type === "mcp/call";
+      const isDeny = effect === "forbid";
+      if (isMcpCall) {
+        if (!tool || !server) {
+          // Surface a friendly message and abort rather than creating a server-only rule for tool calls
+          const verb = isDeny ? "deny" : "allow";
+          try { showNotice?.(`Select a tools/call event with a specific tool name to ${verb}.`); } catch {}
+          setPendingId(null);
+          return;
+        }
+      }
       const ok = await patchPolicies({
         add: [{
           effect,
-          action: { type: action.type, name: action.name },
+          // Include structured server/tool when available in the rendered action
+          action: {
+            type: action.type,
+            name: action.name,
+            server,
+            tool,
+          },
         }],
       });
       if (!ok) {

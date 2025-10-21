@@ -108,6 +108,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export type PatchPolicyAction = {
   type: string;
   name: string;
+  tool?: string;
+  server?: string;
 };
 
 export type PatchPolicyAdd = {
