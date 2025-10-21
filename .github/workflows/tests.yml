@@ -13,7 +13,7 @@ permissions:
 jobs:
   make-test:
     name: make test
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - name: Checkout
@@ -51,4 +51,4 @@ jobs:
       - name: make test
         env:
           CI: true
-        run: make test
+        run: VERBOSE=1 make test-go test-web
