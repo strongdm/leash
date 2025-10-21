@@ -76,6 +76,9 @@ func Main(args []string) error {
 	if len(args) > 0 && args[0] == "exec" {
 		return runExec(args[1:])
 	}
+	if len(args) > 0 && args[0] == "stop" {
+		return stopManagedExecServer()
+	}
 
 	cfg, err := parseConfig(args)
 	if err != nil {
@@ -95,22 +98,98 @@ func Main(args []string) error {
 	return rt.Run()
 }
 
-const leashCLIPath = "/Applications/Leash.app/Contents/Resources/leashcli"
+const defaultLeashCLIPath = "/Applications/Leash.app/Contents/Resources/leashcli"
 
 func runExec(args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("command required")
 	}
 
-	if _, err := os.Stat(leashCLIPath); err != nil {
-		return fmt.Errorf("leashcli not found at %q: %w", leashCLIPath, err)
+	cliPath, passthrough, err := parseExecCLIArgs(args)
+	if err != nil {
+		return err
 	}
 
-	cmd := exec.Command(leashCLIPath, args...)
+	if _, err := os.Stat(cliPath); err != nil {
+		if isExecHelpRequest(passthrough) {
+			printExecHelp()
+			return nil
+		}
+		return fmt.Errorf("leashcli not found at %q: %w", cliPath, err)
+	}
+
+	handle, err := acquireExecServer()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if releaseErr := handle.Release(); releaseErr != nil {
+			log.Printf("failed to release darwin exec server: %v", releaseErr)
+		}
+	}()
+
+	cmd := exec.Command(cliPath, passthrough...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
 	return cmd.Run()
+}
+
+func parseExecCLIArgs(args []string) (string, []string, error) {
+	cliPath := defaultLeashCLIPath
+	passthrough := make([]string, 0, len(args))
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--leash-cli-path":
+			i++
+			if i >= len(args) {
+				return "", nil, fmt.Errorf("--leash-cli-path requires a value")
+			}
+			value := strings.TrimSpace(args[i])
+			if value == "" {
+				return "", nil, fmt.Errorf("--leash-cli-path requires a value")
+			}
+			cliPath = value
+		case strings.HasPrefix(arg, "--leash-cli-path="):
+			value := strings.TrimSpace(strings.TrimPrefix(arg, "--leash-cli-path="))
+			if value == "" {
+				return "", nil, fmt.Errorf("--leash-cli-path requires a value")
+			}
+			cliPath = value
+		default:
+			passthrough = append(passthrough, arg)
+		}
+	}
+
+	return cliPath, passthrough, nil
+}
+
+func isExecHelpRequest(args []string) bool {
+	for _, arg := range args {
+		if arg == "--" {
+			continue
+		}
+		switch arg {
+		case "--help", "-h", "help":
+			return true
+		default:
+			return false
+		}
+	}
+	return false
+}
+
+func printExecHelp() {
+	fmt.Fprintln(os.Stdout, "Usage: leash --darwin exec [--leash-cli-path path] [--] <command> [args...]")
+	fmt.Fprintln(os.Stdout, "")
+	fmt.Fprintln(os.Stdout, "  --leash-cli-path PATH   Override the default /Applications/Leash.app/Contents/Resources/leashcli binary")
+	fmt.Fprintln(os.Stdout, "                          when launching the companion leashcli executable.")
+	fmt.Fprintln(os.Stdout, "")
+	fmt.Fprintln(os.Stdout, "When no override is supplied, leash expects the macOS app bundle to be installed at")
+	fmt.Fprintln(os.Stdout, "  /Applications/Leash.app/Contents/Resources/leashcli")
+	fmt.Fprintln(os.Stdout, "Use --leash-cli-path to point at a locally built leashcli binary if the app bundle is not present.")
 }
 
 // parseConfig reads CLI flags and environment hints to build the runtime configuration.
@@ -123,7 +202,7 @@ func parseConfig(args []string) (*runtimeConfig, error) {
 
 	defaultPolicyPath := strings.TrimSpace(os.Getenv("LEASH_POLICY"))
 	if defaultPolicyPath == "" {
-		defaultPolicyPath = "/cfg/leash.cedar"
+		defaultPolicyPath = "/tmp/tmp.leash.policy"
 	}
 	policyPath := fs.String("policy", defaultPolicyPath, "Policy file path")
 
