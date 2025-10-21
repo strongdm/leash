@@ -1,0 +1,946 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		3E5917F92E9448FE007328DD /* libEndpointSecurity.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 3E5917F82E9448FE007328DD /* libEndpointSecurity.tbd */; };
+		3E5918012E9448FE007328DD /* com.strongdm.leash.LeashES.systemextension in Embed System Extensions */ = {isa = PBXBuildFile; fileRef = 3E5917F62E9448FE007328DD /* com.strongdm.leash.LeashES.systemextension */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		3E5930012E9450E0007328DD /* libbsm.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 3E5930002E9450E0007328DD /* libbsm.tbd */; };
+		3E9F6A012F123456007328DD /* leashcli in Embed CLI */ = {isa = PBXBuildFile; fileRef = 3E59180B2E944B76007328DD /* leashcli */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		41B5AA2C2EA6D37A00B22540 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 41B5AA2B2EA6D37A00B22540 /* Sparkle */; };
+		41CFD57A2E9586F500F22D99 /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 41CFD5792E9586F500F22D99 /* NetworkExtension.framework */; };
+		41CFD5842E9586F500F22D99 /* com.strongdm.leash.LeashNetworkFilter.systemextension in Embed System Extensions */ = {isa = PBXBuildFile; fileRef = 41CFD5782E9586F500F22D99 /* com.strongdm.leash.LeashNetworkFilter.systemextension */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		41CFD5902E9589A500F22D99 /* libbsm.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 3E5930002E9450E0007328DD /* libbsm.tbd */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		3E5917FF2E9448FE007328DD /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 3E5917DA2E9448D9007328DD /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 3E5917F52E9448FE007328DD;
+			remoteInfo = LeashES;
+		};
+		3E9F6A032F123456007328DD /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 3E5917DA2E9448D9007328DD /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 3E59180A2E944B76007328DD;
+			remoteInfo = LeashCLI;
+		};
+		41CFD5822E9586F500F22D99 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 3E5917DA2E9448D9007328DD /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 41CFD5772E9586F500F22D99;
+			remoteInfo = LeashNetworkFilter;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		3E5918062E9448FE007328DD /* Embed System Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(SYSTEM_EXTENSIONS_FOLDER_PATH)";
+			dstSubfolderSpec = 16;
+			files = (
+				41CFD5842E9586F500F22D99 /* com.strongdm.leash.LeashNetworkFilter.systemextension in Embed System Extensions */,
+				3E5918012E9448FE007328DD /* com.strongdm.leash.LeashES.systemextension in Embed System Extensions */,
+			);
+			name = "Embed System Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		3E5918092E944B76007328DD /* CopyFiles */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = /usr/share/man/man1/;
+			dstSubfolderSpec = 0;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 1;
+		};
+		3E5918262E944B88007328DD /* Embed XPC Services */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/XPCServices";
+			dstSubfolderSpec = 16;
+			files = (
+			);
+			name = "Embed XPC Services";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		3E9F6A022F123456007328DD /* Embed CLI */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 7;
+			files = (
+				3E9F6A012F123456007328DD /* leashcli in Embed CLI */,
+			);
+			name = "Embed CLI";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		3E5917E22E9448D9007328DD /* Leash.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Leash.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		3E5917F62E9448FE007328DD /* com.strongdm.leash.LeashES.systemextension */ = {isa = PBXFileReference; explicitFileType = "wrapper.system-extension"; includeInIndex = 0; path = com.strongdm.leash.LeashES.systemextension; sourceTree = BUILT_PRODUCTS_DIR; };
+		3E5917F82E9448FE007328DD /* libEndpointSecurity.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libEndpointSecurity.tbd; path = usr/lib/libEndpointSecurity.tbd; sourceTree = SDKROOT; };
+		3E59180B2E944B76007328DD /* leashcli */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = leashcli; sourceTree = BUILT_PRODUCTS_DIR; };
+		3E5930002E9450E0007328DD /* libbsm.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libbsm.tbd; path = usr/lib/libbsm.tbd; sourceTree = SDKROOT; };
+		41CFD5782E9586F500F22D99 /* com.strongdm.leash.LeashNetworkFilter.systemextension */ = {isa = PBXFileReference; explicitFileType = "wrapper.system-extension"; includeInIndex = 0; path = com.strongdm.leash.LeashNetworkFilter.systemextension; sourceTree = BUILT_PRODUCTS_DIR; };
+		41CFD5792E9586F500F22D99 /* NetworkExtension.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = NetworkExtension.framework; path = System/Library/Frameworks/NetworkExtension.framework; sourceTree = SDKROOT; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		3E5918022E9448FE007328DD /* Exceptions for "LeashES" folder in "LeashES" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 3E5917F52E9448FE007328DD /* LeashES */;
+		};
+		419FE7922E98AC4500E4D751 /* Exceptions for "leash" folder in "LeashES" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				SDMLeash.icon,
+			);
+			target = 3E5917F52E9448FE007328DD /* LeashES */;
+		};
+		419FE7932E98AC4500E4D751 /* Exceptions for "leash" folder in "LeashNetworkFilter" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				SDMLeash.icon,
+			);
+			target = 41CFD5772E9586F500F22D99 /* LeashNetworkFilter */;
+		};
+		41CFD5412E95820100F22D99 /* Exceptions for "leash" folder in "Leash" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 3E5917E12E9448D9007328DD /* Leash */;
+		};
+		41CFD5882E9586F500F22D99 /* Exceptions for "LeashNetworkFilter" folder in "LeashNetworkFilter" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 41CFD5772E9586F500F22D99 /* LeashNetworkFilter */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		3E5917E42E9448D9007328DD /* leash */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				41CFD5412E95820100F22D99 /* Exceptions for "leash" folder in "Leash" target */,
+				419FE7922E98AC4500E4D751 /* Exceptions for "leash" folder in "LeashES" target */,
+				419FE7932E98AC4500E4D751 /* Exceptions for "leash" folder in "LeashNetworkFilter" target */,
+			);
+			path = leash;
+			sourceTree = "<group>";
+		};
+		3E5917FA2E9448FE007328DD /* LeashES */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				3E5918022E9448FE007328DD /* Exceptions for "LeashES" folder in "LeashES" target */,
+			);
+			path = LeashES;
+			sourceTree = "<group>";
+		};
+		3E59180C2E944B76007328DD /* LeashCLI */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = LeashCLI;
+			sourceTree = "<group>";
+		};
+		419FE5042E9833A500E4D751 /* Shared */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		41CFD57B2E9586F500F22D99 /* LeashNetworkFilter */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				41CFD5882E9586F500F22D99 /* Exceptions for "LeashNetworkFilter" folder in "LeashNetworkFilter" target */,
+			);
+			path = LeashNetworkFilter;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		3E5917DF2E9448D9007328DD /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				41B5AA2C2EA6D37A00B22540 /* Sparkle in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		3E5917F32E9448FE007328DD /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3E5917F92E9448FE007328DD /* libEndpointSecurity.tbd in Frameworks */,
+				3E5930012E9450E0007328DD /* libbsm.tbd in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		3E5918082E944B76007328DD /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		41CFD5752E9586F500F22D99 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				41CFD57A2E9586F500F22D99 /* NetworkExtension.framework in Frameworks */,
+				41CFD5902E9589A500F22D99 /* libbsm.tbd in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		3E5917D92E9448D9007328DD = {
+			isa = PBXGroup;
+			children = (
+				419FE5042E9833A500E4D751 /* Shared */,
+				3E5917E42E9448D9007328DD /* leash */,
+				3E5917FA2E9448FE007328DD /* LeashES */,
+				3E59180C2E944B76007328DD /* LeashCLI */,
+				41CFD57B2E9586F500F22D99 /* LeashNetworkFilter */,
+				3E5917F72E9448FE007328DD /* Frameworks */,
+				3E5917E32E9448D9007328DD /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		3E5917E32E9448D9007328DD /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				3E5917E22E9448D9007328DD /* Leash.app */,
+				3E5917F62E9448FE007328DD /* com.strongdm.leash.LeashES.systemextension */,
+				3E59180B2E944B76007328DD /* leashcli */,
+				41CFD5782E9586F500F22D99 /* com.strongdm.leash.LeashNetworkFilter.systemextension */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		3E5917F72E9448FE007328DD /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				3E5917F82E9448FE007328DD /* libEndpointSecurity.tbd */,
+				3E5930002E9450E0007328DD /* libbsm.tbd */,
+				41CFD5792E9586F500F22D99 /* NetworkExtension.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		3E5917E12E9448D9007328DD /* Leash */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 3E5917EF2E9448DA007328DD /* Build configuration list for PBXNativeTarget "Leash" */;
+			buildPhases = (
+				3E5917DE2E9448D9007328DD /* Sources */,
+				3E5917DF2E9448D9007328DD /* Frameworks */,
+				3E5917E02E9448D9007328DD /* Resources */,
+				3E9F6A022F123456007328DD /* Embed CLI */,
+				3E5918062E9448FE007328DD /* Embed System Extensions */,
+				3E5918262E944B88007328DD /* Embed XPC Services */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				3E5918002E9448FE007328DD /* PBXTargetDependency */,
+				41CFD5832E9586F500F22D99 /* PBXTargetDependency */,
+				3E9F6A042F123456007328DD /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				3E5917E42E9448D9007328DD /* leash */,
+				419FE5042E9833A500E4D751 /* Shared */,
+			);
+			name = Leash;
+			packageProductDependencies = (
+				41B5AA2B2EA6D37A00B22540 /* Sparkle */,
+			);
+			productName = leash;
+			productReference = 3E5917E22E9448D9007328DD /* Leash.app */;
+			productType = "com.apple.product-type.application";
+		};
+		3E5917F52E9448FE007328DD /* LeashES */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 3E5918032E9448FE007328DD /* Build configuration list for PBXNativeTarget "LeashES" */;
+			buildPhases = (
+				3E5917F22E9448FE007328DD /* Sources */,
+				3E5917F32E9448FE007328DD /* Frameworks */,
+				3E5917F42E9448FE007328DD /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				3E5917FA2E9448FE007328DD /* LeashES */,
+				419FE5042E9833A500E4D751 /* Shared */,
+			);
+			name = LeashES;
+			packageProductDependencies = (
+			);
+			productName = LeashES;
+			productReference = 3E5917F62E9448FE007328DD /* com.strongdm.leash.LeashES.systemextension */;
+			productType = "com.apple.product-type.system-extension";
+		};
+		3E59180A2E944B76007328DD /* LeashCLI */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 3E59180F2E944B76007328DD /* Build configuration list for PBXNativeTarget "LeashCLI" */;
+			buildPhases = (
+				3E5918072E944B76007328DD /* Sources */,
+				3E5918082E944B76007328DD /* Frameworks */,
+				3E5918092E944B76007328DD /* CopyFiles */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				3E59180C2E944B76007328DD /* LeashCLI */,
+			);
+			name = LeashCLI;
+			packageProductDependencies = (
+			);
+			productName = leashcli;
+			productReference = 3E59180B2E944B76007328DD /* leashcli */;
+			productType = "com.apple.product-type.tool";
+		};
+		41CFD5772E9586F500F22D99 /* LeashNetworkFilter */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 41CFD5872E9586F500F22D99 /* Build configuration list for PBXNativeTarget "LeashNetworkFilter" */;
+			buildPhases = (
+				41CFD5742E9586F500F22D99 /* Sources */,
+				41CFD5752E9586F500F22D99 /* Frameworks */,
+				41CFD5762E9586F500F22D99 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				419FE5042E9833A500E4D751 /* Shared */,
+				41CFD57B2E9586F500F22D99 /* LeashNetworkFilter */,
+			);
+			name = LeashNetworkFilter;
+			packageProductDependencies = (
+			);
+			productName = LeashNetworkFilter;
+			productReference = 41CFD5782E9586F500F22D99 /* com.strongdm.leash.LeashNetworkFilter.systemextension */;
+			productType = "com.apple.product-type.system-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		3E5917DA2E9448D9007328DD /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2600;
+				LastUpgradeCheck = 2600;
+				TargetAttributes = {
+					3E5917E12E9448D9007328DD = {
+						CreatedOnToolsVersion = 26.0;
+					};
+					3E5917F52E9448FE007328DD = {
+						CreatedOnToolsVersion = 26.0;
+					};
+					3E59180A2E944B76007328DD = {
+						CreatedOnToolsVersion = 26.0;
+					};
+					41CFD5772E9586F500F22D99 = {
+						CreatedOnToolsVersion = 26.0;
+					};
+				};
+			};
+			buildConfigurationList = 3E5917DD2E9448D9007328DD /* Build configuration list for PBXProject "Leash" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 3E5917D92E9448D9007328DD;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				41B5AA2A2EA6D37A00B22540 /* XCRemoteSwiftPackageReference "Sparkle" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 3E5917E32E9448D9007328DD /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				3E5917E12E9448D9007328DD /* Leash */,
+				3E5917F52E9448FE007328DD /* LeashES */,
+				3E59180A2E944B76007328DD /* LeashCLI */,
+				41CFD5772E9586F500F22D99 /* LeashNetworkFilter */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		3E5917E02E9448D9007328DD /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		3E5917F42E9448FE007328DD /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		41CFD5762E9586F500F22D99 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		3E5917DE2E9448D9007328DD /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		3E5917F22E9448FE007328DD /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		3E5918072E944B76007328DD /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		41CFD5742E9586F500F22D99 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		3E5918002E9448FE007328DD /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 3E5917F52E9448FE007328DD /* LeashES */;
+			targetProxy = 3E5917FF2E9448FE007328DD /* PBXContainerItemProxy */;
+		};
+		3E9F6A042F123456007328DD /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 3E59180A2E944B76007328DD /* LeashCLI */;
+			targetProxy = 3E9F6A032F123456007328DD /* PBXContainerItemProxy */;
+		};
+		41CFD5832E9586F500F22D99 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 41CFD5772E9586F500F22D99 /* LeashNetworkFilter */;
+			targetProxy = 41CFD5822E9586F500F22D99 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		3E5917ED2E9448DA007328DD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 6BS49F3GLW;
+				ENABLE_APP_INTENTS_METADATA_GENERATION = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_APP_INTENTS_METADATA = NO;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		3E5917EE2E9448DA007328DD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 6BS49F3GLW;
+				ENABLE_APP_INTENTS_METADATA_GENERATION = NO;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		3E5917F02E9448DA007328DD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = SDMLeash;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = leash/leash.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = W5HSYBBJGA;
+				ENABLE_APP_INTENTS_METADATA_GENERATION = NO;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_APP_INTENTS_METADATA = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = leash/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Leash;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSSystemExtensionUsageDescription = "Leash uses a system extension to monitor commands executed via the Leash CLI.";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.strongdm.leash;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_DISABLE_APP_INTENTS_METADATA = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		3E5917F12E9448DA007328DD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = SDMLeash;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = leash/leash.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = W5HSYBBJGA;
+				ENABLE_APP_INTENTS_METADATA_GENERATION = NO;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_APP_INTENTS_METADATA = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = leash/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Leash;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSSystemExtensionUsageDescription = "Leash uses a system extension to monitor commands executed via the Leash CLI.";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.strongdm.leash;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_DISABLE_APP_INTENTS_METADATA = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		3E5918042E9448FE007328DD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = LeashES/LeashES.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = W5HSYBBJGA;
+				ENABLE_APP_INTENTS_METADATA_GENERATION = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = LeashES/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = LeashES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSSystemExtensionUsageDescription = "Leash monitors command execution to enforce security policies";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.strongdm.leash.LeashES;
+				PRODUCT_NAME = "$(inherited)";
+				REGISTER_APP_GROUPS = YES;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DISABLE_APP_INTENTS_METADATA = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		3E5918052E9448FE007328DD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = LeashES/LeashES.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = W5HSYBBJGA;
+				ENABLE_APP_INTENTS_METADATA_GENERATION = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = LeashES/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = LeashES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSSystemExtensionUsageDescription = "Leash monitors command execution to enforce security policies";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.strongdm.leash.LeashES;
+				PRODUCT_NAME = "$(inherited)";
+				REGISTER_APP_GROUPS = YES;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DISABLE_APP_INTENTS_METADATA = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		3E5918102E944B76007328DD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				AUTOMATION_APPLE_EVENTS = NO;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = W5HSYBBJGA;
+				ENABLE_APP_INTENTS_METADATA_GENERATION = NO;
+				ENABLE_HARDENED_RUNTIME = NO;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
+				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
+				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
+				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
+				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
+				ENABLE_RESOURCE_ACCESS_PHOTO_LIBRARY = NO;
+				GENERATE_APP_INTENTS_METADATA = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				OTHER_CODE_SIGN_FLAGS = "-i com.strongdm.leash.cli";
+				PRODUCT_BUNDLE_IDENTIFIER = com.strongdm.leash.cli;
+				PRODUCT_NAME = leashcli;
+				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
+				RUNTIME_EXCEPTION_ALLOW_JIT = NO;
+				RUNTIME_EXCEPTION_ALLOW_UNSIGNED_EXECUTABLE_MEMORY = NO;
+				RUNTIME_EXCEPTION_DEBUGGING_TOOL = NO;
+				RUNTIME_EXCEPTION_DISABLE_EXECUTABLE_PAGE_PROTECTION = NO;
+				RUNTIME_EXCEPTION_DISABLE_LIBRARY_VALIDATION = NO;
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DISABLE_APP_INTENTS_METADATA = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		3E5918112E944B76007328DD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				AUTOMATION_APPLE_EVENTS = NO;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = W5HSYBBJGA;
+				ENABLE_APP_INTENTS_METADATA_GENERATION = NO;
+				ENABLE_HARDENED_RUNTIME = NO;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
+				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
+				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
+				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
+				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
+				ENABLE_RESOURCE_ACCESS_PHOTO_LIBRARY = NO;
+				GENERATE_APP_INTENTS_METADATA = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				OTHER_CODE_SIGN_FLAGS = "-i com.strongdm.leash.cli";
+				PRODUCT_BUNDLE_IDENTIFIER = com.strongdm.leash.cli;
+				PRODUCT_NAME = leashcli;
+				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
+				RUNTIME_EXCEPTION_ALLOW_JIT = NO;
+				RUNTIME_EXCEPTION_ALLOW_UNSIGNED_EXECUTABLE_MEMORY = NO;
+				RUNTIME_EXCEPTION_DEBUGGING_TOOL = NO;
+				RUNTIME_EXCEPTION_DISABLE_EXECUTABLE_PAGE_PROTECTION = NO;
+				RUNTIME_EXCEPTION_DISABLE_LIBRARY_VALIDATION = NO;
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DISABLE_APP_INTENTS_METADATA = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		41CFD5852E9586F500F22D99 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = LeashNetworkFilter/LeashNetworkFilter.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = W5HSYBBJGA;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = LeashNetworkFilter/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Leash Network Filter";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSSystemExtensionUsageDescription = "Leash Network Filter monitors network traffic from leash-tracked processes";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.strongdm.leash.LeashNetworkFilter;
+				PRODUCT_NAME = "$(inherited)";
+				REGISTER_APP_GROUPS = YES;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DISABLE_APP_INTENTS_METADATA = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		41CFD5862E9586F500F22D99 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = LeashNetworkFilter/LeashNetworkFilter.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = W5HSYBBJGA;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = LeashNetworkFilter/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Leash Network Filter";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSSystemExtensionUsageDescription = "Leash Network Filter monitors network traffic from leash-tracked processes";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.strongdm.leash.LeashNetworkFilter;
+				PRODUCT_NAME = "$(inherited)";
+				REGISTER_APP_GROUPS = YES;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DISABLE_APP_INTENTS_METADATA = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		3E5917DD2E9448D9007328DD /* Build configuration list for PBXProject "Leash" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3E5917ED2E9448DA007328DD /* Debug */,
+				3E5917EE2E9448DA007328DD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		3E5917EF2E9448DA007328DD /* Build configuration list for PBXNativeTarget "Leash" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3E5917F02E9448DA007328DD /* Debug */,
+				3E5917F12E9448DA007328DD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		3E5918032E9448FE007328DD /* Build configuration list for PBXNativeTarget "LeashES" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3E5918042E9448FE007328DD /* Debug */,
+				3E5918052E9448FE007328DD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		3E59180F2E944B76007328DD /* Build configuration list for PBXNativeTarget "LeashCLI" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3E5918102E944B76007328DD /* Debug */,
+				3E5918112E944B76007328DD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		41CFD5872E9586F500F22D99 /* Build configuration list for PBXNativeTarget "LeashNetworkFilter" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				41CFD5852E9586F500F22D99 /* Debug */,
+				41CFD5862E9586F500F22D99 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		41B5AA2A2EA6D37A00B22540 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.8.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		41B5AA2B2EA6D37A00B22540 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 41B5AA2A2EA6D37A00B22540 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 3E5917DA2E9448D9007328DD /* Project object */;
+}

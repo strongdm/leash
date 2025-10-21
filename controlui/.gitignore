@@ -1,0 +1,9 @@
+# Inspiration assets (keep keepers)
+inspiration/*
+!inspiration/.gitkeep
+!inspiration/README.md
+
+# Local scratch space
+.scratch/*
+!.scratch/.gitkeep
+!.scratch/README.md

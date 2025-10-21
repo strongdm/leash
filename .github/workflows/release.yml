@@ -1,0 +1,118 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+env:
+  STAGING_LEASH_IMAGE: ghcr.io/strongdm/leash-verify
+  STAGING_AGENT_IMAGE: ghcr.io/strongdm/coder-verify
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    outputs:
+      docker_version: ${{ steps.push_images.outputs.sanitized_version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.3'
+      - name: Install LSM prerequisites
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang llvm libbpf-dev pkg-config nodejs npm
+      - name: Install pnpm
+        run: |
+          sudo npm install -g pnpm@10
+          pnpm --version
+      - name: Generate LSM artifacts
+        run: make lsm-generate
+      - name: Build UI
+        run: make build-ui
+      - name: Build binaries
+        run: make build
+      - name: Run test suite
+        run: make test-go && make test-web
+      - name: Upload build artifacts for release
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-build-assets
+          if-no-files-found: error
+          path: |
+            internal/lsm
+            internal/ui/dist
+            bin
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push staging Docker images
+        id: push_images
+        env:
+          LEASH_IMAGE: ${{ env.STAGING_LEASH_IMAGE }}
+          AGENT_IMAGE: ${{ env.STAGING_AGENT_IMAGE }}
+        run: ./build/publish-docker.sh "verify-${{ github.run_id }}"
+
+  release:
+    name: Build & Publish
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+      actions: read
+    env:
+      GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.2'
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Download verify artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: verify-build-assets
+          path: .
+      - name: Install release prerequisites
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang llvm libbpf-dev pkg-config
+      - name: Set up Goreleaser
+        uses: goreleaser/goreleaser-action@v5
+        with:
+          version: v2.12.5
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Promote Docker images
+        env:
+          LEASH_SOURCE_IMAGE: ${{ env.STAGING_LEASH_IMAGE }}:${{ needs.verify.outputs.docker_version }}
+          AGENT_SOURCE_IMAGE: ${{ env.STAGING_AGENT_IMAGE }}:${{ needs.verify.outputs.docker_version }}
+        run: ./build/publish-docker.sh "${GORELEASER_CURRENT_TAG}"

@@ -1,0 +1,120 @@
+/*!
+ * Cedar highlight theme adapted from highlightjs-cedar (Apache-2.0).
+ * Provides a neon-on-slate palette aligned with the Leash UI.
+ */
+.cedar-highlight {
+  position: relative;
+  border-radius: var(--radius-md);
+  border: 1px solid hsl(var(--cyan-glow) / 0.35);
+  background: hsl(220 30% 12% / 0.82);
+  box-shadow:
+    inset 0 0 0 1px hsl(var(--cyan-glow) / 0.08),
+    0 12px 30px -20px hsl(var(--cyan-bright) / 0.4);
+  transition: box-shadow 140ms ease, border-color 140ms ease;
+}
+
+.cedar-highlight:focus-within {
+  border-color: hsl(var(--cyan-bright));
+  box-shadow:
+    0 0 0 1px hsl(var(--cyan-bright)),
+    0 0 18px hsl(var(--cyan-bright) / 0.35),
+    inset 0 0 0 1px hsl(var(--cyan-bright) / 0.2);
+}
+
+.cedar-highlight pre {
+  margin: 0;
+  white-space: pre;
+  overflow-x: auto;
+  background: transparent;
+  color: inherit;
+  pointer-events: none;
+}
+
+.cedar-highlight textarea {
+  background: transparent;
+  border: 0;
+  resize: none;
+  outline: none;
+  color: hsl(191 72% 82%);
+  caret-color: hsl(var(--cyan-bright));
+  font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  letter-spacing: 0.01em;
+  tab-size: 2;
+}
+
+.cedar-highlight textarea::placeholder {
+  color: hsl(var(--cyan-glow) / 0.38);
+}
+
+.cedar-highlight code.hljs {
+  background: transparent;
+  padding: 0;
+  font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  letter-spacing: 0.01em;
+}
+
+.cedar-highlight .hljs {
+  color: #c9f4ff;
+  background: transparent;
+  text-shadow: 0 0 1px hsl(var(--cyan-glow) / 0.1);
+}
+
+.cedar-highlight .hljs-comment,
+.cedar-highlight .hljs-quote {
+  color: hsl(215 18% 65%);
+  font-style: italic;
+}
+
+.cedar-highlight .hljs-keyword,
+.cedar-highlight .hljs-template-tag,
+.cedar-highlight .hljs-template-variable,
+.cedar-highlight .hljs-variable.language_,
+.cedar-highlight .hljs-doctag {
+  color: hsl(var(--cyan-bright));
+}
+
+.cedar-highlight .hljs-built_in,
+.cedar-highlight .hljs-variable,
+.cedar-highlight .hljs-attr,
+.cedar-highlight .hljs-attribute,
+.cedar-highlight .hljs-property {
+  color: hsl(36 94% 68%);
+}
+
+.cedar-highlight .hljs-title,
+.cedar-highlight .hljs-title.class_,
+.cedar-highlight .hljs-title.function_,
+.cedar-highlight .hljs-title.class_.inherited__ {
+  color: hsl(267 82% 76%);
+}
+
+.cedar-highlight .hljs-string,
+.cedar-highlight .hljs-regexp,
+.cedar-highlight .hljs-meta .hljs-string {
+  color: hsl(146 71% 70%);
+}
+
+.cedar-highlight .hljs-number,
+.cedar-highlight .hljs-literal,
+.cedar-highlight .hljs-symbol,
+.cedar-highlight .hljs-operator {
+  color: hsl(12 90% 70%);
+}
+
+.cedar-highlight .hljs-punctuation {
+  color: hsl(205 18% 72%);
+}
+
+.cedar-highlight .hljs-addition {
+  color: hsl(146 66% 80%);
+  background: hsl(146 80% 20% / 0.25);
+}
+
+.cedar-highlight .hljs-deletion {
+  color: hsl(2 80% 75%);
+  background: hsl(353 80% 30% / 0.3);
+}

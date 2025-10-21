@@ -1,0 +1,135 @@
+# syntax=docker/dockerfile:1.7
+
+ARG GO_VERSION=1.25.3
+ARG DEBIAN_FRONTEND=noninteractive
+ARG UI_SOURCE=ui-build
+
+FROM golang:${GO_VERSION}-bookworm AS build
+ARG UI_SOURCE
+ARG TARGETARCH
+ARG DEBIAN_FRONTEND
+ARG COMMIT=dev
+ARG BUILD_DATE=unknown
+ARG VERSION=dev
+ARG CHANNEL=main
+ARG GIT_REMOTE_URL=unknown
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        git \
+        make \
+        pkg-config \
+        clang \
+        llvm \
+        libbpf-dev \
+        libelf-dev \
+        build-essential \
+        nodejs \
+        npm; \
+    case "${TARGETARCH:-amd64}" in \
+        amd64) apt-get install -y --no-install-recommends linux-headers-amd64 ;; \
+        arm64) apt-get install -y --no-install-recommends linux-headers-arm64 ;; \
+        *) apt-get install -y --no-install-recommends linux-headers-generic || true ;; \
+    esac; \
+    rm -rf /var/lib/apt/lists/*
+RUN npm install -g pnpm
+
+ENV GOPATH=/go \
+    PATH=/usr/local/go/bin:/go/bin:$PATH \
+    PNPM_STORE_DIR=/pnpm/store \
+    CI=1
+
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+RUN --mount=type=cache,target=/pnpm/store \
+    --mount=type=cache,target=/cache \
+    --mount=type=cache,target=/src/controlui/web/.next/cache \
+    if [ "${UI_SOURCE}" = "ui-build" ]; then \
+        rm -rf internal/ui/dist && \
+        cd controlui/web && \
+        pnpm config set store-dir "$PNPM_STORE_DIR" && \
+        pnpm install --frozen-lockfile --prefer-offline && \
+        node scripts/build-if-changed.mjs --out /tmp/ui-dist --hash /cache/controlui.buildhash && \
+        cd /src && \
+        mkdir -p internal/ui/dist && \
+        rm -rf internal/ui/dist/* && \
+        cp -a /tmp/ui-dist/. internal/ui/dist/; \
+    else \
+        echo "[ui] Using repository-provided assets"; \
+    fi
+
+RUN go install github.com/cilium/ebpf/cmd/bpf2go@v0.19.0
+RUN go generate ./internal/lsm
+# Reduce memory usage and speed up builds using cache mounts and limited parallelism.
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    CGO_ENABLED=1 \
+    go build -ldflags "-X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildDate=${BUILD_DATE}" -o /out/leash ./cmd/leash
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    CGO_ENABLED=0 go build -o /out/leash-entry ./cmd/leash-entry
+
+FROM debian:bookworm AS runtime-base
+ARG DEBIAN_FRONTEND
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bash \
+    busybox \
+    ca-certificates \
+    curl \
+    dnsutils \
+    iproute2 \
+    iptables \
+    iputils-ping \
+    less \
+    libbpf1 \
+    libelf1 \
+    net-tools \
+    procps \
+    tcpdump \
+    tini \
+    vim \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+RUN mkdir -p /log /cfg /leash
+
+ENV LEASH_LOG_DIR=/log \
+    LEASH_CFG_DIR=/cfg \
+    LEASH_LOG=/log/events.log \
+    LEASH_POLICY=/cfg/leash.cedar \
+    LEASH_PROXY_PORT=18000
+
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/leash", "--daemon"]
+
+FROM runtime-base AS final
+ARG VERSION=dev
+ARG COMMIT=dev
+ARG BUILD_DATE=unknown
+ARG CHANNEL=main
+ARG GIT_REMOTE_URL=unknown
+LABEL org.opencontainers.image.version="v${VERSION}" \
+      org.opencontainers.image.revision="${COMMIT}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.source="${GIT_REMOTE_URL}" \
+      org.opencontainers.image.ref.name="${CHANNEL}"
+COPY --from=build /out/leash /usr/local/bin/leash
+COPY --from=build /out/leash-entry /usr/local/bin/leash-entry
+
+FROM runtime-base AS final-prebuilt
+ARG VERSION=dev
+ARG COMMIT=dev
+ARG BUILD_DATE=unknown
+ARG CHANNEL=main
+ARG GIT_REMOTE_URL=unknown
+LABEL org.opencontainers.image.version="v${VERSION}" \
+      org.opencontainers.image.revision="${COMMIT}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.source="${GIT_REMOTE_URL}" \
+      org.opencontainers.image.ref.name="${CHANNEL}"
+COPY --from=build /out/leash /usr/local/bin/leash
+COPY --from=build /out/leash-entry /usr/local/bin/leash-entry

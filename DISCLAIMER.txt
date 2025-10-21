@@ -1,0 +1,14 @@
+BINARY DISTRIBUTION DISCLAIMER
+
+These precompiled binaries (“Software”) are built from source code licensed under
+the Apache License, Version 2.0 (“ALv2”). The source continues to be governed by ALv2.
+
+THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT. NO SUPPORT OR
+MAINTENANCE IS PROVIDED. USE IS AT YOUR OWN RISK.
+
+This disclaimer does not alter any rights you have under ALv2 for the source code.
+See LICENSE for the full text of ALv2, NOTICE for source‑dist attributions,
+NOTICE-binary for binary‑dist attributions, and docs/NOTICE-controlui.txt for
+embedded UI attributions.

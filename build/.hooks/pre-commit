@@ -1,0 +1,161 @@
+#!/bin/sh
+set -e
+
+# Configuration
+# - Binary files >500KB are blocked
+# - Images allowed only under monitor-ui/ or frontend/
+MAX_BINARY_SIZE=512000  # 500KB in bytes
+
+# Get list of staged files (Added, Copied, Modified)
+files=$(git diff --cached --name-only --diff-filter=ACM)
+
+# Auto-format staged Go files with goimports, then restage
+gofiles=$(echo "$files" | grep -E '\.go$' | grep -v '^vendor/' || true)
+if [ -n "$gofiles" ]; then
+    if ! command -v goimports >/dev/null 2>&1; then
+        echo "Installing goimports..." >&2
+        go install golang.org/x/tools/cmd/goimports@latest || {
+            echo "Failed to install goimports" >&2
+            exit 1
+        }
+    fi
+    GOIMPORTS_BIN=$(command -v goimports || echo "$(go env GOPATH)/bin/goimports")
+    echo "Running goimports on staged Go files..." >&2
+
+    # We reformat the staged snapshot for each Go file without disturbing
+    # unstaged hunks in the working tree:
+    #   1. Extract the staged blob into a temp file.
+    #   2. Run goimports on that temp copy.
+    #   3. Write the formatted blob straight back into the index via
+    #      git update-index --cacheinfo so only staged content changes.
+    #   4. If the file had no unstaged edits, mirror the formatted result into
+    #      the working tree to keep it in sync.
+    tmpdir=$(mktemp -d 2>/dev/null || echo "/tmp/precommit_goimports_dir_$$")
+    mkdir -p "$tmpdir"
+    trap 'rm -rf "$tmpdir"' EXIT
+
+    while IFS= read -r gofile; do
+        [ -z "$gofile" ] && continue
+
+        # Skip files that disappeared from the index (e.g., deleted after staging)
+        if ! git ls-files --stage -- "$gofile" >/dev/null 2>&1; then
+            continue
+        fi
+
+        # Track whether the user has unstaged edits for this file
+        if git diff --quiet -- "$gofile"; then
+            has_unstaged=0
+        else
+            has_unstaged=1
+        fi
+
+        tmp_staged=$(mktemp "$tmpdir/goimports_XXXXXX" 2>/dev/null || echo "$tmpdir/goimports_tmp")
+
+        if ! git show ":$gofile" > "$tmp_staged" 2>/dev/null; then
+            continue
+        fi
+
+        if ! "$GOIMPORTS_BIN" -w "$tmp_staged"; then
+            echo "goimports failed on $gofile" >&2
+            exit 1
+        fi
+
+        mode=$(git ls-files --stage -- "$gofile" | awk 'NR==1 {print $1}')
+        [ -z "$mode" ] && mode=100644
+
+        blob=$(git hash-object -w "$tmp_staged")
+        git update-index --cacheinfo "$mode" "$blob" "$gofile"
+
+        if [ "$has_unstaged" -eq 0 ]; then
+            # No unstaged changes: keep working tree in sync with formatted staging copy
+            cat "$tmp_staged" > "$gofile"
+        fi
+    done <<EOF
+$gofiles
+EOF
+
+    rm -rf "$tmpdir"
+    trap - EXIT
+fi
+
+# Exit early if no files staged
+[ -z "$files" ] && exit 0
+
+# Check each staged file
+for file in $files; do
+    # Skip if file doesn't exist (was deleted after staging)
+    [ ! -f "$file" ] && continue
+
+    # Forbid committing anything under or containing '.scratch' in the path
+    case "$file" in
+        *.scratch*)
+            echo "Error: committing files with '.scratch' in the path is forbidden: $file" >&2
+            echo "Move or exclude scratch artifacts before committing." >&2
+            exit 1
+            ;;
+    esac
+
+    # Enforce canonical content for any */static/.gitignore files
+    case "$file" in
+        */static/.gitignore)
+            tmp_expected=$(mktemp 2>/dev/null || echo "/tmp/precommit_expected_$$")
+            cat > "$tmp_expected" << 'EOF'
+/index.html
+/assets/*
+!/assets/.keep
+!/assets/README.txt
+EOF
+            if ! cmp -s "$tmp_expected" "$file"; then
+                echo "Error: $file must contain exactly the canonical static .gitignore content:" >&2
+                cat "$tmp_expected" >&2
+                rm -f "$tmp_expected"
+                exit 1
+            fi
+            rm -f "$tmp_expected"
+            ;;
+    esac
+
+    # Determine mime type and encoding
+    mime_type=$(file --mime-type -b "$file" 2>/dev/null || echo "")
+    mime_enc=$(file --mime-encoding -b "$file" 2>/dev/null || echo "")
+
+    # Resolve size in bytes (BSD and GNU stat compatibility)
+    file_size=$(
+        stat -f%z "$file" 2>/dev/null ||
+        stat -c%s "$file" 2>/dev/null ||
+        { wc -c < "$file" | awk '{print $1}'; }
+    )
+
+    # 1) Disallow committing images except under monitor-ui/ or frontend/
+    case "$mime_type" in
+        image/*)
+            case "$file" in
+                monitor-ui/*|frontend/*)
+                    : # allowed path for images
+                    ;;
+                *)
+                    echo "Error: Images are only allowed under monitor-ui/ or frontend/: $file" >&2
+                    exit 1
+                    ;;
+            esac
+            ;;
+    esac
+
+    # 2) Prevent committing binary files larger than 500KB
+    # Treat files with binary encoding as binary; also catch common executable/application types.
+    is_binary=0
+    if [ "$mime_enc" = "binary" ]; then
+        is_binary=1
+    elif echo "$mime_type" | grep -qE '^application/'; then
+        # Many application/* types are binary (e.g., octet-stream, x-executable)
+        is_binary=1
+    fi
+
+    if [ "$is_binary" -eq 1 ] && [ -n "$file_size" ] && [ "$file_size" -gt "$MAX_BINARY_SIZE" ]; then
+        echo "Error: Binary file exceeds 500KB limit: $file" >&2
+        echo "File size: $((file_size / 1024))KB" >&2
+        exit 1
+    fi
+done
+
+exit 0

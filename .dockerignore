@@ -1,0 +1,6 @@
+controlui/web/node_modules
+controlui/web/.pnpm-store
+controlui/web/.next
+internal/entrypoint/bundled_linux_amd64_gen.go
+internal/entrypoint/bundled_linux_arm64_gen.go
+internal/entrypoint/embed

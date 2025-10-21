@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>SUFeedURL</key>
+	<string>https://ai-team-gen-leash-updates-navan-chauhan--20251020-160804.s3.us-west-2.amazonaws.com/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>cFpLFhVnuLzd/aY01Mtfb1AChUS69/MlDHDyCYaHpy4=</string>
+	<key>SUShowReleaseNotes</key>
+	<false/>
+</dict>
+</plist>

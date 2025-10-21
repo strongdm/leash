@@ -1,0 +1,44 @@
+version: 2
+
+project_name: leash
+
+before:
+  hooks:
+    - go mod download
+    - make lsm-generate
+
+builds:
+  - id: leash
+    main: ./cmd/leash
+    binary: leash
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -X main.version={{ .Version }}
+      - -X main.commit={{ .ShortCommit }}
+      - -X main.buildDate={{ .Date }}
+
+archives:
+  - id: leash
+    ids:
+      - leash
+    name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
+    formats:
+      - tar.gz
+
+checksum:
+  #name_template: '{{ .ProjectName }}_{{ .Version }}_checksums.txt'
+  #algorithm: sha256
+  disable: true
+
+release:
+  replace_existing_draft: true
+  prerelease: false
