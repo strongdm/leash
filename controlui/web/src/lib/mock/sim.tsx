@@ -726,10 +726,10 @@ export function SimulationProvider({ children, initialMode = "sim", persist = tr
 
   useEffect(() => {
     if (wsUrl || typeof window === "undefined") return;
-    const fallbackPort = process.env.NEXT_PUBLIC_LEASH_WS_PORT ?? "18080";
+    // Prefer current origin (host:port) so the WS follows port hops automatically.
     const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-    const host = window.location.hostname || "localhost";
-    setWsUrl(`${protocol}://${host}:${fallbackPort}/api`);
+    const hostPort = window.location.host || (window.location.hostname || "localhost");
+    setWsUrl(`${protocol}://${hostPort}/api`);
   }, [wsUrl]);
 
   const setMode = useCallback(

@@ -39,6 +39,19 @@ func (s stubPolicyChecker) HasMCPPolicies() bool {
 	return s.mcp
 }
 
+// toolOnlyPolicyChecker denies MCP calls when the tool matches the configured value.
+type toolOnlyPolicyChecker struct {
+	tool string
+}
+
+func (t toolOnlyPolicyChecker) CheckConnect(hostname string, ip string, port uint16) bool {
+	return true
+}
+func (t toolOnlyPolicyChecker) HasMCPPolicies() bool { return true }
+func (t toolOnlyPolicyChecker) CheckMCPCall(server string, tool string) bool {
+	return strings.TrimSpace(strings.ToLower(tool)) != strings.TrimSpace(strings.ToLower(t.tool))
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -177,6 +190,56 @@ func TestHandleTransparentHTTPMCPPolicyDeniesToolsCall(t *testing.T) {
 	}
 	if !strings.Contains(response, "policy") {
 		t.Fatalf("expected policy message, got %q", response)
+	}
+
+	wg.Wait()
+}
+
+func TestHandleTransparentHTTPMCPPolicyDeniesByToolOnly(t *testing.T) {
+	// Real JSON-RPC payload with a tool name; denial should trigger based on tool match only
+	body := `{"jsonrpc":"2.0","id":"42","method":"tools/call","params":{"name":"get_library_docs"}}`
+	req := fmt.Sprintf("POST /jsonrpc HTTP/1.1\r\nHost: mcp.example.org\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n%s", len(body), body)
+	initialData := []byte(req)[:len(req)/2]
+	remaining := []byte(req)[len(initialData):]
+
+	proxy := &MITMProxy{
+		certCache:      make(map[string]*tls.Certificate),
+		headerRewriter: NewHeaderRewriter(),
+		httpClient: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			return nil, fmt.Errorf("unexpected forward")
+		})},
+		mcpObserver: newMCPObserver(MCPConfig{}, nil),
+	}
+	// Deny only when the tool name matches get_library_docs, regardless of server host
+	proxy.SetPolicyChecker(toolOnlyPolicyChecker{tool: "get_library_docs"})
+
+	clientConn, serverConn := net.Pipe()
+	defer clientConn.Close()
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		defer serverConn.Close()
+		proxy.handleTransparentHTTP(serverConn, "mcp.example.org:80", initialData)
+	}()
+
+	if _, err := clientConn.Write(remaining); err != nil {
+		t.Fatalf("failed to write request: %v", err)
+	}
+
+	_ = clientConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	buf := make([]byte, 512)
+	n, err := clientConn.Read(buf)
+	if err != nil {
+		t.Fatalf("failed to read response: %v", err)
+	}
+	response := string(buf[:n])
+	if !strings.Contains(response, "403 Forbidden") {
+		t.Fatalf("expected 403 response, got %q", response)
+	}
+	if !strings.Contains(response, "tools/call denied") {
+		t.Fatalf("expected denial reason, got %q", response)
 	}
 
 	wg.Wait()

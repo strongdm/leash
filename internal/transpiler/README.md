@@ -23,6 +23,7 @@ Cedar Actions (PascalCase) map to Leash IR operations:
 | `Action::"ProcessExec"` | `proc.exec` | Execute binary |
 | `Action::"NetworkConnect"` | `net.send` | Network connection |
 | `Action::"HttpRewrite"` | `http.rewrite` | HTTP header injection |
+| `Action::"McpCall"` | MCP policy rules | MCP tool call enforcement |
 
 ### Resources
 
@@ -34,6 +35,8 @@ Cedar resource entities are mapped to Leash resource types:
 | `Dir::"<path>"` | Directory path ending with `/` | Directory and subdirectories |
 | `Host::"<hostname>"` | Hostname or IP | Network host |
 | `Host::"<hostname>:<port>"` | Hostname with port | Network host and port |
+| `MCP::Server::"<hostname>"` | MCP server host | MCP server endpoint |
+| `MCP::Tool::"<tool-name>"` | MCP tool name | Specific MCP tool |
 
 ### Effects
 
@@ -123,7 +126,12 @@ allow net.send *.example.com
 - Context-based conditions (e.g., `context.hostname like "*.example.com"`) are partially supported
 - IPv6 addresses are not yet supported
 - Complex Cedar expressions may not be fully supported
-- HTTP header rewrite rules are supported via `Action::"HttpRewrite"` with `context.header/value`.
+- HTTP header rewrite rules are supported via `Action::"HttpRewrite"` with `context.header/value`
+- **MCP policies (V1 limitations)**:
+  - `permit` on `Action::"McpCall"` is informational only (generates linter warning `mcp_allow_noop`)
+  - Only `forbid` on `Action::"McpCall"` is enforced at runtime
+  - Tool-only denies (`MCP::Tool` without `MCP::Server`) do not generate network (`net.send`) rules
+  - Server-level denies transpile to both MCP policy rules and network deny rules
 
 ## Testing
 

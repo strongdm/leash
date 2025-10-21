@@ -18,10 +18,7 @@ vi.mock("@/lib/mock/sim", () => ({
 }));
 
 vi.mock("@/lib/policy/policy-blocks-context", () => ({
-  usePolicyBlocksContext: () => ({
-    refresh: vi.fn(),
-    patchPolicies: vi.fn().mockResolvedValue(true),
-  }),
+  usePolicyBlocksContext: () => mockPolicyCtx,
 }));
 
 vi.mock("@/lib/time", () => ({
@@ -29,8 +26,16 @@ vi.mock("@/lib/time", () => ({
 }));
 
 describe("ActionsStream", () => {
+  const patchPolicies = vi.fn().mockResolvedValue(true);
+  const refresh = vi.fn();
+  const showNotice = vi.fn();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (globalThis as any).mockPolicyCtx = { refresh, patchPolicies, showNotice };
   beforeEach(() => {
     mockState.recentActions = [];
+    patchPolicies.mockClear();
+    refresh.mockClear();
+    showNotice.mockClear();
   });
 
   it("renders aggregated event counts and summary totals", () => {
@@ -235,5 +240,36 @@ describe("ActionsStream", () => {
       (URL as unknown as { createObjectURL?: typeof createObjectURLMock }).createObjectURL = originalCreate;
       (URL as unknown as { revokeObjectURL?: typeof revokeObjectURLMock }).revokeObjectURL = originalRevoke;
     }
+  });
+
+  it("passes server+tool for MCP Add Deny", async () => {
+    mockState.recentActions = [
+      {
+        id: "mcp-1",
+        instanceId: "instance-1",
+        type: "mcp/call",
+        name: "tools/call tool=resolve-library-id server=mcp.context7.com",
+        method: "tools/call",
+        server: "mcp.context7.com",
+        tool: "resolve-library-id",
+        ts: Date.now(),
+        allowed: true,
+      },
+    ];
+
+    render(<ActionsStream />);
+
+    const row = screen.getByText(/mcp\/call/i).closest("tr") as HTMLTableRowElement;
+    expect(row).toBeTruthy();
+    const deny = within(row).getByRole("button", { name: /add deny/i });
+    fireEvent.click(deny);
+
+    // Wait a tick for async onAddPolicy
+    await act(() => Promise.resolve());
+
+    expect(patchPolicies).toHaveBeenCalledTimes(1);
+    const arg = patchPolicies.mock.calls[0][0];
+    expect(arg.add[0].action.server).toBe("mcp.context7.com");
+    expect(arg.add[0].action.tool).toBe("resolve-library-id");
   });
 });

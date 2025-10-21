@@ -1465,8 +1465,10 @@ func (api *policyAPI) addPolicyStatement(newCedar string) (map[string]any, int, 
 }
 
 type actionPayload struct {
-	Type string `json:"type"`
-	Name string `json:"name"`
+	Type   string `json:"type"`
+	Name   string `json:"name"`
+	Tool   string `json:"tool,omitempty"`
+	Server string `json:"server,omitempty"`
 }
 
 type addPolicyFromActionRequest struct {
@@ -1531,8 +1533,15 @@ func buildCedarFromActionRequest(req addPolicyFromActionRequest) (string, error)
 		return buildHeadEqualityPolicy(effect, `Net::"Connect"`, resource), nil
 		// MCP events: Option A — Action::"McpCall" with MCP::Tool and MCP::Server
 	case "mcp/deny", "mcp/allow", "mcp/list", "mcp/call", "mcp/resources", "mcp/prompts", "mcp/init", "mcp/notify":
-		server := parseServerHostFromName(name)
-		tool := parseToolFromName(name)
+		// Prefer structured fields when provided
+		server := strings.TrimSpace(req.Action.Server)
+		tool := strings.TrimSpace(req.Action.Tool)
+		if server == "" {
+			server = parseServerHostFromName(name)
+		}
+		if tool == "" {
+			tool = parseToolFromName(name)
+		}
 		if server == "" {
 			server = "example.com"
 		}
@@ -1622,6 +1631,7 @@ func parseToolFromName(name string) string {
 		k := strings.ToLower(strings.TrimSpace(kv[0]))
 		v := strings.TrimSpace(kv[1])
 		v = strings.Trim(v, "[]")
+		v = strings.Trim(v, `"'`)
 		if k == "tool" {
 			return v
 		}
