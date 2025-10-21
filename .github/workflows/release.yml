@@ -41,7 +41,7 @@ jobs:
       - name: Build binaries
         run: make build
       - name: Run test suite
-        run: make test-go && make test-web
+        run: VERBOSE=1 make test-go && make test-web
       - name: Upload build artifacts for release
         uses: actions/upload-artifact@v4
         with:
