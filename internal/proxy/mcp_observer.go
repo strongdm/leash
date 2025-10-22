@@ -239,7 +239,7 @@ func (o *mcpObserver) logHTTPRequest(ctx *mcpRequestContext, status int, outcome
 	}
 
 	if decision == "" {
-		if finalOutcome == "error" {
+		if finalOutcome == "error" || finalOutcome == "denied" || status == 403 {
 			decision = "denied"
 		} else {
 			decision = "allowed"
