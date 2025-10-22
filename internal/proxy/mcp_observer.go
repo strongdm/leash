@@ -202,7 +202,7 @@ func (o *mcpObserver) inspectHTTPResponse(ctx *mcpRequestContext, resp *http.Res
 	}
 }
 
-func (o *mcpObserver) logHTTPRequest(ctx *mcpRequestContext, status int, outcome string, session string, decision string, err error) {
+func (o *mcpObserver) logHTTPRequest(ctx *mcpRequestContext, status int, outcome string, session string, err error) {
 	if o == nil || ctx == nil || o.logger == nil {
 		return
 	}
@@ -238,12 +238,10 @@ func (o *mcpObserver) logHTTPRequest(ctx *mcpRequestContext, status int, outcome
 		status = 202
 	}
 
-	if decision == "" {
-		if finalOutcome == "error" || finalOutcome == "denied" || status == 403 {
-			decision = "denied"
-		} else {
-			decision = "allowed"
-		}
+	// Always derive decision from outcome and status
+	decision := "allowed"
+	if finalOutcome == "error" || finalOutcome == "denied" || status == 403 {
+		decision = "denied"
 	}
 
 	truncatedSession := ""
