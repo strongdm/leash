@@ -1,5 +1,9 @@
 # Leash Cedar Policy Reference (Consolidated)
 
+> [!WARNING]
+> Because Leash relies on enforcement mechanisms (e.g. eBPF) which cannot evaluate Cedar policy, we translate Cedar intents into the available enforcement techniques. At policy authoring and validation time, we lint and validate the Cedar statements to ensure only those statements which are enforceable are saved and applied. The translations are simple, but may result in some intuition violations for anyone familiar with Cedar's authorization model.  
+
+
 Leash loads the initial access‑control policy from `/cfg/leash.cedar`. At startup
 the daemon validates Cedar, transpiles it to Leash IR in memory, and loads the
 resulting rules into the eBPF LSM programs and the HTTP MITM proxy.
