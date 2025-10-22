@@ -14,7 +14,7 @@ This is a native alternative to the Linux container path and does not launch the
 
 ## Install & Activate
 
-1. Move `Leash.app` to `/Applications` and open it.
+1. Open `Leash.app`.
 2. In the app window, activate both extensions:
    - Endpoint Security -> “Activate”
    - Network Filter -> “Activate”
