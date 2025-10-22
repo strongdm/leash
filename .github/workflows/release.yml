@@ -17,9 +17,22 @@ jobs:
   verify:
     name: Verify
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      packages: write
     outputs:
       docker_version: ${{ steps.push_images.outputs.sanitized_version }}
     steps:
+      - name: Configure AWS credentials (ECR public preflight)
+        if: github.event_name == 'push'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ECR_RELEASE_ROLE_ARN }}
+          aws-region: us-east-1
+      - name: Login to ECR Public (preflight)
+        if: github.event_name == 'push'
+        run: aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
       - name: Checkout
         uses: actions/checkout@v4
         with:
