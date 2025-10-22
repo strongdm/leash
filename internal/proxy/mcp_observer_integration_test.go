@@ -263,3 +263,62 @@ func TestMCPObserverCapturesSessionSSEStream(t *testing.T) {
 		t.Fatalf("unexpected stream notification log: %s", streamNotify)
 	}
 }
+
+func TestMCPObserverPolicyDenialShowsDeniedDecision(t *testing.T) {
+	logger, err := lsm.NewSharedLogger("")
+	if err != nil {
+		t.Fatalf("failed to create shared logger: %v", err)
+	}
+	capture := &capturingBroadcaster{}
+	logger.SetBroadcaster(capture)
+
+	observer := newMCPObserver(MCPConfig{
+		Mode:       MCPModeBasic,
+		SniffLimit: 32 * 1024,
+	}, logger)
+
+	// Simulate a policy-denied MCP call (outcome=denied, status=403)
+	ctx := &mcpRequestContext{
+		event:           "mcp.call",
+		method:          "tools/call",
+		server:          "mcp.context7.com",
+		tool:            "resolve-library-id",
+		responseOutcome: "denied",
+		responseError:   "policy_denied",
+		started:         time.Now().Add(-10 * time.Millisecond),
+	}
+
+	observer.logHTTPRequest(ctx, 403, "", "", "", nil)
+
+	var callLog string
+	for _, entry := range capture.all() {
+		if strings.HasPrefix(entry, "event=mcp.call") {
+			callLog = entry
+			break
+		}
+	}
+
+	if callLog == "" {
+		t.Fatalf("missing mcp.call event in logs: %+v", capture.all())
+	}
+
+	// Verify that both outcome and decision show "denied" for policy denials
+	if !strings.Contains(callLog, `tool="resolve-library-id"`) {
+		t.Errorf("call log missing tool: %s", callLog)
+	}
+	if !strings.Contains(callLog, `server="mcp.context7.com"`) {
+		t.Errorf("call log missing server: %s", callLog)
+	}
+	if !strings.Contains(callLog, `status=403`) {
+		t.Errorf("call log missing status 403: %s", callLog)
+	}
+	if !strings.Contains(callLog, `outcome=denied`) {
+		t.Errorf("call log missing outcome=denied: %s", callLog)
+	}
+	if !strings.Contains(callLog, `decision=denied`) {
+		t.Errorf("call log should show decision=denied for policy denials, got: %s", callLog)
+	}
+	if !strings.Contains(callLog, `error="policy_denied"`) {
+		t.Errorf("call log missing error field: %s", callLog)
+	}
+}
