@@ -6,6 +6,7 @@ before:
   hooks:
     - go mod download
     - make lsm-generate
+    - go generate ./internal/entrypoint/...
 
 builds:
   - id: leash
