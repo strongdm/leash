@@ -18,6 +18,9 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	gws "github.com/gorilla/websocket"
+	"github.com/strongdm/leash/internal/messages"
 )
 
 const (
@@ -337,7 +340,10 @@ func checkServerHealthy() bool {
 	if !probeHealthz() {
 		return false
 	}
-	return probeWebInterface()
+	if !probeWebInterface() {
+		return false
+	}
+	return probeDarwinWebsocket("127.0.0.1:" + execServerPort)
 }
 
 func probeHealthz() bool {
@@ -362,6 +368,87 @@ func probeWebInterface() bool {
 	}
 	contentType := resp.Header.Get("Content-Type")
 	return strings.Contains(contentType, "text/html")
+}
+
+func probeDarwinWebsocket(addr string) bool {
+	dialer := &gws.Dialer{
+		Proxy:            http.ProxyFromEnvironment,
+		HandshakeTimeout: 500 * time.Millisecond,
+		NetDialContext: (&net.Dialer{
+			Timeout:   500 * time.Millisecond,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+	}
+
+	conn, _, err := dialer.Dial(fmt.Sprintf("ws://%s/api", addr), nil)
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+
+	hello := messages.ClientHelloPayload{
+		Platform:     "darwin",
+		Capabilities: []string{"pid-sync", "rule-sync", "event", "policy", "network-rules"},
+		Version:      "probe",
+	}
+	env, err := messages.WrapPayload("probe-session", "probe-shim", messages.TypeClientHello, 1, hello)
+	if err != nil {
+		return false
+	}
+	data, err := json.Marshal(env)
+	if err != nil {
+		return false
+	}
+
+	if err := conn.SetWriteDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+		return false
+	}
+	if err := conn.WriteMessage(gws.TextMessage, data); err != nil {
+		return false
+	}
+
+	deadline := time.Now().Add(900 * time.Millisecond)
+	for {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return false
+		}
+		if err := conn.SetReadDeadline(time.Now().Add(remaining)); err != nil {
+			return false
+		}
+		_, msg, err := conn.ReadMessage()
+		if err != nil {
+			return false
+		}
+		if containsDarwinAck(msg) {
+			return true
+		}
+	}
+}
+
+func containsDarwinAck(msg []byte) bool {
+	chunks := bytes.Split(msg, []byte{'\n'})
+	for _, raw := range chunks {
+		raw = bytes.TrimSpace(raw)
+		if len(raw) == 0 {
+			continue
+		}
+		var env messages.Envelope
+		if err := json.Unmarshal(raw, &env); err != nil {
+			continue
+		}
+		if env.Type != messages.TypeMacAck {
+			continue
+		}
+		var ack messages.AckPayload
+		if err := messages.UnmarshalPayload(&env, &ack); err != nil {
+			continue
+		}
+		if ack.Cmd == messages.TypeClientHello && strings.EqualFold(ack.Status, "ok") {
+			return true
+		}
+	}
+	return false
 }
 
 func waitForServerReady(pid int, timeout time.Duration) error {
