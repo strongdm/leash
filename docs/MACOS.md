@@ -5,7 +5,7 @@ Leash on macOS can run natively with a companion app that installs two system ex
 - Endpoint Security (ES) extension for exec/file monitoring
 - Network Extension (NE) filter for per‑directory network policy
 
-This is a native alternative to the Linux container path and does not launch the local HTTP MITM proxy on macOS. Leash on macOS does not use `sandbox-exec`.
+This is a native alternative to the Linux container path and does not launch the local HTTP MITM proxy on macOS. Leash on macOS does not use `sandbox-exec`. Native `--darwin` mode is still highly experimental.
 
 ## Requirements
 
@@ -34,9 +34,23 @@ The ES extension needs Full Disk Access to observe events:
 
 System Settings -> Privacy & Security -> Full Disk Access -> enable for “LeashES”.
 
-## WebSocket API
+## Darwin-Specific Commands
 
-TODO: Fill this out
+### Start the Darwin Server
+
+```bash
+leash --darwin exec <your_command>
+```
+
+This automatically starts the WebSocket API server and web interface at [localhost:18080](http://localhost:18080), if they are not already running.
+
+### Stop the Darwin Server
+
+```bash
+leash --darwin stop
+```
+
+Stops the running server.
 
 ## Remove / Uninstall
 
@@ -72,3 +86,4 @@ Examples:
 - Default network behavior is fail‑open for flows missing PID metadata; enable “Enforce rules for untracked processes” in Settings to evaluate them.
 - `leash --darwin exec …` expects the companion CLI at `/Applications/Leash.app/Contents/Resources/leashcli`; moving the app can break launches.
 - Requires macOS 14+ for extension activation.
+- Only supports connecting to the server at `localhost:18080`
