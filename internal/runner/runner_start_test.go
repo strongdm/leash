@@ -18,8 +18,6 @@ func TestAssignContainerNamesAddsSuffix(t *testing.T) {
 	t.Parallel()
 
 	commandOverrideMu.Lock()
-	defer commandOverrideMu.Unlock()
-
 	restoreOutput := commandOutput
 	existing := map[string]bool{
 		"target":       true,
@@ -36,7 +34,10 @@ func TestAssignContainerNamesAddsSuffix(t *testing.T) {
 		}
 		return "", fmt.Errorf("unexpected command: %s %v", name, args)
 	}
-	t.Cleanup(func() { commandOutput = restoreOutput })
+	t.Cleanup(func() {
+		commandOutput = restoreOutput
+		commandOverrideMu.Unlock()
+	})
 
 	r := &runner{
 		cfg: config{
@@ -64,8 +65,6 @@ func TestAssignContainerNamesKeepsBase(t *testing.T) {
 	t.Parallel()
 
 	commandOverrideMu.Lock()
-	defer commandOverrideMu.Unlock()
-
 	restoreOutput := commandOutput
 	commandOutput = func(ctx context.Context, name string, args ...string) (string, error) {
 		t.Helper()
@@ -75,7 +74,10 @@ func TestAssignContainerNamesKeepsBase(t *testing.T) {
 		}
 		return "", fmt.Errorf("unexpected command: %s %v", name, args)
 	}
-	t.Cleanup(func() { commandOutput = restoreOutput })
+	t.Cleanup(func() {
+		commandOutput = restoreOutput
+		commandOverrideMu.Unlock()
+	})
 
 	r := &runner{
 		cfg: config{
@@ -103,8 +105,6 @@ func TestAllocateListenPortAutoIncrement(t *testing.T) {
 	t.Parallel()
 
 	commandOverrideMu.Lock()
-	defer commandOverrideMu.Unlock()
-
 	restoreOutput := commandOutput
 	var psCalls int
 	commandOutput = func(ctx context.Context, name string, args ...string) (string, error) {
@@ -118,7 +118,10 @@ func TestAllocateListenPortAutoIncrement(t *testing.T) {
 		}
 		return "", fmt.Errorf("unexpected command: %s %v", name, args)
 	}
-	t.Cleanup(func() { commandOutput = restoreOutput })
+	t.Cleanup(func() {
+		commandOutput = restoreOutput
+		commandOverrideMu.Unlock()
+	})
 
 	r := &runner{
 		cfg: config{
@@ -141,8 +144,6 @@ func TestAllocateListenPortExplicitFailure(t *testing.T) {
 	t.Parallel()
 
 	commandOverrideMu.Lock()
-	defer commandOverrideMu.Unlock()
-
 	restoreOutput := commandOutput
 	commandOutput = func(ctx context.Context, name string, args ...string) (string, error) {
 		t.Helper()
@@ -151,7 +152,10 @@ func TestAllocateListenPortExplicitFailure(t *testing.T) {
 		}
 		return "", fmt.Errorf("unexpected command: %s %v", name, args)
 	}
-	t.Cleanup(func() { commandOutput = restoreOutput })
+	t.Cleanup(func() {
+		commandOutput = restoreOutput
+		commandOverrideMu.Unlock()
+	})
 
 	r := &runner{
 		cfg: config{
