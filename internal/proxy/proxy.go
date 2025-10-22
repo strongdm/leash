@@ -308,7 +308,7 @@ func (p *MITMProxy) enforceMCPCall(conn net.Conn, ctx *mcpRequestContext, server
 		}
 		_ = conn.Close()
 		if p.mcpObserver != nil {
-			p.mcpObserver.logHTTPRequest(ctx, status, "denied", "", "deny", nil)
+			p.mcpObserver.logHTTPRequest(ctx, status, "denied", "", nil)
 		}
 		p.logRequest(scheme, logHost, logPort, path, query, authHeader, status, fmt.Errorf("mcp tools/call denied by policy"))
 		return true
@@ -405,7 +405,7 @@ func (p *MITMProxy) handleTransparentHTTP(clientConn net.Conn, originalDest stri
 		log.Printf("Error forwarding request: %v", err)
 		p.logRequest("http", host, port, path, query, authHeader, 0, err)
 		if mcpCtx != nil {
-			p.mcpObserver.logHTTPRequest(mcpCtx, 0, "error", "", "", err)
+			p.mcpObserver.logHTTPRequest(mcpCtx, 0, "error", "", err)
 		}
 		return
 	}
@@ -442,7 +442,7 @@ func (p *MITMProxy) handleTransparentHTTP(clientConn net.Conn, originalDest stri
 
 	outcome := classifyOutcome(resp.StatusCode, writeErr)
 	if mcpCtx != nil {
-		p.mcpObserver.logHTTPRequest(mcpCtx, resp.StatusCode, outcome, sessionHeader, "", writeErr)
+		p.mcpObserver.logHTTPRequest(mcpCtx, resp.StatusCode, outcome, sessionHeader, writeErr)
 	}
 
 	p.logRequest("http", host, port, path, query, authHeader, resp.StatusCode, writeErr)
@@ -578,7 +578,7 @@ func (p *MITMProxy) handleTransparentHTTPS(clientConn net.Conn, originalDest str
 
 		if mcpCtx != nil {
 			outcome := classifyOutcome(responseCode, forwardErr)
-			p.mcpObserver.logHTTPRequest(mcpCtx, responseCode, outcome, sessionHeader, "", forwardErr)
+			p.mcpObserver.logHTTPRequest(mcpCtx, responseCode, outcome, sessionHeader, forwardErr)
 		}
 
 		// Log request to logfmt

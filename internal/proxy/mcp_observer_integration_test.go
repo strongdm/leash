@@ -288,7 +288,7 @@ func TestMCPObserverPolicyDenialShowsDeniedDecision(t *testing.T) {
 		started:         time.Now().Add(-10 * time.Millisecond),
 	}
 
-	observer.logHTTPRequest(ctx, 403, "", "", "", nil)
+	observer.logHTTPRequest(ctx, 403, "", "", nil)
 
 	var callLog string
 	for _, entry := range capture.all() {
