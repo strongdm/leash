@@ -3,6 +3,8 @@
 
 Leash wraps AI coding agents in containers and monitors their activity. You define policies in [Cedar](https://docs.cedarpolicy.com/); Leash enforces them instantly.
 
+![Leash demo](https://leash.strongdm.ai/media/leash-clip.gif)
+
 ## Requirements
 
 - Docker, Podman, or [OrbStack](https://orbstack.dev/)
