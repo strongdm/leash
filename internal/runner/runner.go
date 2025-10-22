@@ -26,8 +26,8 @@ import (
 )
 
 const (
-	defaultTargetImage = "ghcr.io/strongdm/coder:latest"
-	defaultLeashImage  = "ghcr.io/strongdm/leash:latest"
+	defaultTargetImage = "989005111931.dkr.ecr.us-west-1.amazonaws.com/strongdm/coder:latest"
+	defaultLeashImage  = "989005111931.dkr.ecr.us-west-1.amazonaws.com/strongdm/leash:latest"
 
 	defaultProxyPort = "18000"
 
