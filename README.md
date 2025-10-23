@@ -29,9 +29,9 @@ brew tap strongdm/tap
 brew install --cask leash-app
 ```
 
-**Mac Note 1:** This installs the leash formula as well
+**macOS Note 1:** This installs a helper app that enables experimental native mode on macOS and also installs the leash formula.
 
-**Mac Note 2:** If you download Leash from the releases page, you'll need to run `xattr -d com.apple.quarantine leash` after extracting it
+**macOS Note 2:** If you download Leash from the releases page, you'll need to run `xattr -d com.apple.quarantine leash` after extracting it
 
 Refer to [MACOS.md](docs/MACOS.md) to learn more about the additional native macOS capabilities.
 
