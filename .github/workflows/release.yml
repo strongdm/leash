@@ -114,8 +114,6 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_ECR_RELEASE_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
-      - name: Login to ECR
-        uses: aws-actions/amazon-ecr-login@v2
       - name: Login to ECR Public
         run: aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
       - name: Login to GHCR
@@ -155,9 +153,7 @@ jobs:
           LEASH_SOURCE_IMAGE: ${{ env.STAGING_LEASH_IMAGE }}:${{ needs.verify.outputs.docker_version }}
           TARGET_SOURCE_IMAGE: ${{ env.STAGING_TARGET_IMAGE }}:${{ needs.verify.outputs.docker_version }}
           ECR_LEASH_IMAGE: public.ecr.aws/s5i7k8t3/strongdm/leash
-          EXTRA_LEASH_IMAGES: 989005111931.dkr.ecr.us-west-1.amazonaws.com/strongdm/leash
           ECR_TARGET_IMAGE: public.ecr.aws/s5i7k8t3/strongdm/coder
-          EXTRA_TARGET_IMAGES: 989005111931.dkr.ecr.us-west-1.amazonaws.com/strongdm/coder
         run: ./build/publish-docker.sh "${GORELEASER_CURRENT_TAG}"
 
   stage-npm:
