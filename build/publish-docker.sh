@@ -93,6 +93,26 @@ main() {
     local leash_image="${LEASH_IMAGE:-ghcr.io/strongdm/leash}"
     local target_image="${TARGET_IMAGE:-ghcr.io/strongdm/coder}"
 
+    local leash_images=("${leash_image}")
+    if [ -n "${ECR_LEASH_IMAGE:-}" ]; then
+        leash_images+=("${ECR_LEASH_IMAGE}")
+    fi
+    if [ -n "${EXTRA_LEASH_IMAGES:-}" ]; then
+        IFS=',' read -r -a _extra_leash_images <<< "${EXTRA_LEASH_IMAGES}"
+        leash_images+=("${_extra_leash_images[@]}")
+        unset _extra_leash_images
+    fi
+
+    local target_images=("${target_image}")
+    if [ -n "${ECR_TARGET_IMAGE:-}" ]; then
+        target_images+=("${ECR_TARGET_IMAGE}")
+    fi
+    if [ -n "${EXTRA_TARGET_IMAGES:-}" ]; then
+        IFS=',' read -r -a _extra_target_images <<< "${EXTRA_TARGET_IMAGES}"
+        target_images+=("${_extra_target_images[@]}")
+        unset _extra_target_images
+    fi
+
     local commit
     commit="$(git rev-parse --short=7 HEAD)"
     local build_date
@@ -110,6 +130,8 @@ main() {
         if ! promote_image "${leash_source}" "${leash_image}" "${version}"; then
             log_error "promotion failed; rebuilding ${leash_image}:${version}"
             leash_source=""
+        else
+            leash_source="${leash_image}:${version}"
         fi
     fi
     if [ -z "${leash_source}" ]; then
@@ -122,13 +144,42 @@ main() {
             --build-arg VERSION="${version#v}" \
             --build-arg CHANNEL="${channel}" \
             --build-arg GIT_REMOTE_URL="${git_url}"
+        leash_source="${leash_image}:${version}"
     fi
+
+    local leash_target
+    for leash_target in "${leash_images[@]}"; do
+        if [ "${leash_target}" = "${leash_image}" ]; then
+            continue
+        fi
+
+        if [ -n "${leash_source}" ]; then
+            if promote_image "${leash_source}" "${leash_target}" "${version}"; then
+                leash_source="${leash_target}:${version}"
+                continue
+            fi
+            log_error "promotion failed; rebuilding ${leash_target}:${version}"
+        fi
+
+        docker_build_push "${leash_target}" "${version}" \
+            --file Dockerfile.leash \
+            --target final-prebuilt \
+            --build-arg UI_SOURCE=ui-prebuilt \
+            --build-arg COMMIT="${commit}" \
+            --build-arg BUILD_DATE="${build_date}" \
+            --build-arg VERSION="${version#v}" \
+            --build-arg CHANNEL="${channel}" \
+            --build-arg GIT_REMOTE_URL="${git_url}"
+        leash_source="${leash_target}:${version}"
+    done
 
     local target_source="${TARGET_SOURCE_IMAGE:-}"
     if [ -n "${target_source}" ]; then
         if ! promote_image "${target_source}" "${target_image}" "${version}"; then
             log_error "promotion failed; rebuilding ${target_image}:${version}"
             target_source=""
+        else
+            target_source="${target_image}:${version}"
         fi
     fi
     if [ -z "${target_source}" ]; then
@@ -139,7 +190,32 @@ main() {
             --build-arg VERSION="${version#v}" \
             --build-arg CHANNEL="${channel}" \
             --build-arg GIT_REMOTE_URL="${git_url}"
+        target_source="${target_image}:${version}"
     fi
+
+    local target_entry
+    for target_entry in "${target_images[@]}"; do
+        if [ "${target_entry}" = "${target_image}" ]; then
+            continue
+        fi
+
+        if [ -n "${target_source}" ]; then
+            if promote_image "${target_source}" "${target_entry}" "${version}"; then
+                target_source="${target_entry}:${version}"
+                continue
+            fi
+            log_error "promotion failed; rebuilding ${target_entry}:${version}"
+        fi
+
+        docker_build_push "${target_entry}" "${version}" \
+            --file Dockerfile.coder \
+            --build-arg COMMIT="${commit}" \
+            --build-arg BUILD_DATE="${build_date}" \
+            --build-arg VERSION="${version#v}" \
+            --build-arg CHANNEL="${channel}" \
+            --build-arg GIT_REMOTE_URL="${git_url}"
+        target_source="${target_entry}:${version}"
+    done
 
     log_info "Docker tags created for original input '${original_version}' as '${version}'"
 }
