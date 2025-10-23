@@ -2,6 +2,8 @@
 
 This document describes how we cut a Leash release, why the workflow looks the way it does, and how to dry-run everything locally before tagging `vX.Y.Z`.
 
+For npm distribution specifics (trusted publishing, dist-tags, and manual fallbacks), see `docs/release_management.md`.
+
 ## Flow Overview
 
 ```mermaid
@@ -73,4 +75,3 @@ git push origin v1.2.3
   - Manifest lists for `ghcr.io/strongdm/coder:{vX.Y.Z,latest}`
 
 If any step fails, the workflow halts and no release is published. Fix the issue (e.g., broken test, missing login) and re-push the tag once resolved.
-

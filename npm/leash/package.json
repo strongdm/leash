@@ -1,0 +1,38 @@
+{
+  "name": "@strongdm/leash",
+  "description": "Prebuilt leash CLI binaries distributed for Node.js environments.",
+  "type": "commonjs",
+  "bin": {
+    "leash": "bin/leash.js"
+  },
+  "files": [
+    "bin/",
+    "vendor/",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/strongdm/leash.git",
+    "directory": "npm/leash"
+  },
+  "bugs": {
+    "url": "https://github.com/strongdm/leash/issues"
+  },
+  "homepage": "https://github.com/strongdm/leash#readme",
+  "license": "Apache-2.0",
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -10,7 +10,15 @@ Leash wraps AI coding agents in containers and monitors their activity. You defi
 - Docker, Podman, or [OrbStack](https://orbstack.dev/)
 - macOS or Linux (WSL, too!)
 
-## Quick Start
+## Installation
+
+Recommended method is via npm:
+
+```bash
+npm install -g @strongdm/leash
+```
+
+Alternative ways follow:
 
 Download the latest pre-built release binary from the [releases](https://github.com/strongdm/leash/releases) page.
 
