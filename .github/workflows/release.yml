@@ -72,6 +72,9 @@ jobs:
     name: Build & Publish
     needs: verify
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.release_version.outputs.tag }}
+      version: ${{ steps.release_version.outputs.version }}
     permissions:
       contents: write
       packages: write
@@ -111,8 +114,116 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload Goreleaser dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: goreleaser-dist
+          if-no-files-found: error
+          path: dist
+      - name: Compute release version
+        id: release_version
+        run: |
+          TAG="${GORELEASER_CURRENT_TAG}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
       - name: Promote Docker images
         env:
           LEASH_SOURCE_IMAGE: ${{ env.STAGING_LEASH_IMAGE }}:${{ needs.verify.outputs.docker_version }}
           AGENT_SOURCE_IMAGE: ${{ env.STAGING_AGENT_IMAGE }}:${{ needs.verify.outputs.docker_version }}
         run: ./build/publish-docker.sh "${GORELEASER_CURRENT_TAG}"
+
+  stage-npm:
+    name: Stage npm Package
+    needs:
+      - release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      packages: read
+    env:
+      NPM_VERSION: ${{ needs.release.outputs.version }}
+    outputs:
+      tarball: ${{ steps.build_npm.outputs.tarball }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Download Goreleaser dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: goreleaser-dist
+          path: dist
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          uv --version
+      - name: Lint npm tooling
+        run: |
+          uv run ruff check build/npm
+          uv run ruff format --check build/npm
+      - name: Collect vendor assets
+        run: |
+          uv run build/npm/collect_vendor_from_dist.py --dist dist --out dist/npm/vendor --force
+      - name: Build npm package
+        id: build_npm
+        run: |
+          uv run build/npm/build_npm_package.py \
+            --version "${{ env.NPM_VERSION }}" \
+            --vendor dist/npm/vendor \
+            --stage dist/npm/stage \
+            --out dist/npm \
+            --force
+          echo "tarball=dist/npm/strongdm-leash-${{ env.NPM_VERSION }}.tgz" >> "$GITHUB_OUTPUT"
+      - name: Upload npm package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-package
+          if-no-files-found: error
+          path: ${{ steps.build_npm.outputs.tarball }}
+
+  publish-npm:
+    name: Publish npm Package
+    needs:
+      - release
+      - stage-npm
+    if: ${{ github.ref_type == 'tag' }}
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      packages: write
+    env:
+      NPM_VERSION: ${{ needs.release.outputs.version }}
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+    steps:
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: https://registry.npmjs.org
+      - name: Download npm package artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: npm-package
+          path: dist/npm
+      - name: Determine npm dist-tag
+        id: npm_tag
+        run: |
+          VERSION="${{ env.NPM_VERSION }}"
+          if [[ "$VERSION" == *"-alpha."* ]]; then
+            echo "tag=alpha" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Publish to npm
+        env:
+          NPM_CONFIG_PROVENANCE: "true"
+        run: |
+          npm publish "${{ needs.stage-npm.outputs.tarball }}" --provenance --access public --tag "${{ steps.npm_tag.outputs.tag }}"
