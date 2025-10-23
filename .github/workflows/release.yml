@@ -188,6 +188,10 @@ jobs:
           curl -LsSf https://astral.sh/uv/install.sh | sh
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           uv --version
+      - name: Install Ruff toolchain
+        run: |
+          uv tool install ruff
+          uv tool run ruff --version
       - name: Lint npm tooling
         run: |
           uv run ruff check build/npm
