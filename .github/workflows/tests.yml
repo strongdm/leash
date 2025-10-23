@@ -51,4 +51,4 @@ jobs:
       - name: make test
         env:
           CI: true
-        run: VERBOSE=1 make test-go test-web
+        run: make test-go test-web
