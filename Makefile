@@ -2,6 +2,8 @@ SHELL := /bin/bash
 
 LEASH_IMAGE ?= ghcr.io/strongdm/leash:latest
 TARGET_IMAGE ?= ghcr.io/strongdm/coder:latest
+LEASH_ECR_LATEST ?= public.ecr.aws/s5i7k8t3/strongdm/leash:latest
+TARGET_ECR_LATEST ?= public.ecr.aws/s5i7k8t3/strongdm/coder:latest
 LSM_DOCKER_IMAGE ?= golang:1.25.3-bookworm
 DOCKER ?= docker
 #LEASH_PLATFORMS ?= darwin/amd64 darwin/arm64 linux/amd64 linux/arm64
@@ -99,9 +101,15 @@ docker-leash: precommit docker-ui lsm-generate-docker ## Build Leash Docker imag
 	@set -euo pipefail; \
 	  IMAGE="$(LEASH_IMAGE)"; \
 	  VERSION_REF="$(VERSION_TAG)"; \
-	  TAG_ENV=$$($(DOCKER_TAG_SCRIPT) --image "$$IMAGE" --version "$$VERSION_REF"); \
+	  EXTRA_TAG_ARGS=""; \
+	  if [ -n "$(strip $(LEASH_ECR_LATEST))" ]; then EXTRA_TAG_ARGS="--extra-tag $(LEASH_ECR_LATEST)"; fi; \
+	  TAG_ENV=$$($(DOCKER_TAG_SCRIPT) --image "$$IMAGE" --version "$$VERSION_REF" $$EXTRA_TAG_ARGS); \
 	  eval "$$TAG_ENV"; \
 	  for TAG in $$TAG_LIST; do echo " - $$TAG"; done; \
+	  IID_TMP="$$(mktemp)"; \
+	  OUT_TMP="$$(mktemp "$(CURDIR)/.dev-docker-leash.XXXXXX")"; \
+	  cleanup_dev() { rm -f "$$IID_TMP" "$$OUT_TMP"; }; \
+	  trap cleanup_dev EXIT; \
 	  DOCKER_BUILDKIT=1 $(DOCKER) build -f Dockerfile.leash \
 	    --target final \
 	    --build-arg COMMIT="$$COMMIT" \
@@ -109,7 +117,14 @@ docker-leash: precommit docker-ui lsm-generate-docker ## Build Leash Docker imag
 	    --build-arg VERSION="$(VERSION)" \
 	    --build-arg CHANNEL="$$CHANNEL_NAME" \
 	    --build-arg VCS_URL="$(GIT_REMOTE_URL)" \
-	    $$TAG_ARGS .
+	    --iidfile "$$IID_TMP" \
+	    $$TAG_ARGS .; \
+	  IID_VALUE="$$(cat "$$IID_TMP")"; \
+	  if [ -z "$$IID_VALUE" ]; then echo "failed to capture leash image ID" >&2; exit 1; fi; \
+	  printf '%s\n' "$$IID_VALUE" > "$$OUT_TMP"; \
+	  mv "$$OUT_TMP" "$(CURDIR)/.dev-docker-leash"; \
+	  rm -f "$$IID_TMP"; \
+	  trap - EXIT;
 
 .PHONY: docker-leash-prebuilt
 # Build runtime image using prebuilt UI assets in internal/ui/dist (skips Node stage)
@@ -118,7 +133,9 @@ docker-leash-prebuilt: precommit ## Build Docker image using prebuilt UI assets 
 	@set -euo pipefail; \
 	  IMAGE="$(LEASH_IMAGE)"; \
 	  VERSION_REF="$(VERSION_TAG)"; \
-	  TAG_ENV=$$($(DOCKER_TAG_SCRIPT) --image "$$IMAGE" --version "$$VERSION_REF"); \
+	  EXTRA_TAG_ARGS=""; \
+	  if [ -n "$(strip $(LEASH_ECR_LATEST))" ]; then EXTRA_TAG_ARGS="--extra-tag $(LEASH_ECR_LATEST)"; fi; \
+	  TAG_ENV=$$($(DOCKER_TAG_SCRIPT) --image "$$IMAGE" --version "$$VERSION_REF" $$EXTRA_TAG_ARGS); \
 	  eval "$$TAG_ENV"; \
 	  for TAG in $$TAG_LIST; do echo " - $$TAG"; done; \
 	  DOCKER_BUILDKIT=1 $(DOCKER) build -f Dockerfile.leash \
@@ -137,16 +154,29 @@ docker-coder: precommit ## Build the coder docker image (includes all common cod
 	@set -euo pipefail; \
 	  IMAGE="$(TARGET_IMAGE)"; \
 	  VERSION_REF="$(VERSION_TAG)"; \
-	  TAG_ENV=$$($(DOCKER_TAG_SCRIPT) --image "$$IMAGE" --version "$$VERSION_REF"); \
+	  EXTRA_TAG_ARGS=""; \
+	  if [ -n "$(strip $(TARGET_ECR_LATEST))" ]; then EXTRA_TAG_ARGS="--extra-tag $(TARGET_ECR_LATEST)"; fi; \
+	  TAG_ENV=$$($(DOCKER_TAG_SCRIPT) --image "$$IMAGE" --version "$$VERSION_REF" $$EXTRA_TAG_ARGS); \
 	  eval "$$TAG_ENV"; \
 	  for TAG in $$TAG_LIST; do echo " - $$TAG"; done; \
+	  IID_TMP="$$(mktemp)"; \
+	  OUT_TMP="$$(mktemp "$(CURDIR)/.dev-docker-coder.XXXXXX")"; \
+	  cleanup_dev() { rm -f "$$IID_TMP" "$$OUT_TMP"; }; \
+	  trap cleanup_dev EXIT; \
 	  $(DOCKER) build -f Dockerfile.coder \
 	    --build-arg COMMIT="$$COMMIT" \
 	    --build-arg BUILD_DATE="$$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
 	    --build-arg VERSION="$(VERSION)" \
 	    --build-arg CHANNEL="$$CHANNEL_NAME" \
 	    --build-arg VCS_URL="$(GIT_REMOTE_URL)" \
-	    $$TAG_ARGS .
+	    --iidfile "$$IID_TMP" \
+	    $$TAG_ARGS .; \
+	  IID_VALUE="$$(cat "$$IID_TMP")"; \
+	  if [ -z "$$IID_VALUE" ]; then echo "failed to capture coder image ID" >&2; exit 1; fi; \
+	  printf '%s\n' "$$IID_VALUE" > "$$OUT_TMP"; \
+	  mv "$$OUT_TMP" "$(CURDIR)/.dev-docker-coder"; \
+	  rm -f "$$IID_TMP"; \
+	  trap - EXIT;
 
 .PHONY: docker
 docker: docker-leash docker-coder ## Build all project docker images
@@ -257,6 +287,7 @@ clean: ## Remove build artifacts
 	@go clean -cache
 	# Build artifacts.
 	@rm -rf bin/*
+	@rm -f .dev-docker-*
 	@# Remove go:generate'd resources:
 	@#     -> Embedded leash-entry binaries.
 	@rm -rf internal/entrypoint/embed/*
@@ -267,5 +298,4 @@ clean: ## Remove build artifacts
 	@rm -rf internal/ui/dist/*
 	# Misc follows.
 	@rm -rf tmp/log tmp/leash
-	@mkdir -p tmp/auth tmp/log tmp/cfg tmp/leash
 	#@reset
