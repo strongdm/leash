@@ -70,7 +70,7 @@ func TestRenderPolicyLinesStripsEscapedQuotes(t *testing.T) {
 }
 
 func TestRenderPolicyLinesDedupesDuplicateStatements(t *testing.T) {
-	stmt := `forbid (principal, action == Fs::"ReadFile", resource == Fs::File::"/tmp/foo");`
+	stmt := `forbid (principal, action == Action::"FileOpenReadOnly", resource == File::"/tmp/foo");`
 	cedar := strings.Join([]string{strings.TrimSpace(stmt), strings.TrimSpace(stmt)}, "\n")
 
 	lines, err := renderPolicyLines(cedar)

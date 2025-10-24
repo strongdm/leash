@@ -13,7 +13,7 @@ func TestCedarEval_ActionConnect_AllowsMatchingHostname(t *testing.T) {
 permit (
   principal,
   action == Action::"NetworkConnect",
-  resource == Net::Hostname::"api.example.com"
+  resource == Host::"api.example.com"
 );`
 
 	ps, err := cedar.NewPolicySetFromBytes("policies", []byte(policyText))
@@ -25,7 +25,7 @@ permit (
 	req := cedar.Request{
 		Principal: cedar.NewEntityUID("User", "any"),
 		Action:    cedar.NewEntityUID("Action", "NetworkConnect"),
-		Resource:  cedar.NewEntityUID("Net::Hostname", "api.example.com"),
+		Resource:  cedar.NewEntityUID("Host", "api.example.com"),
 		Context:   cedar.NewRecord(cedar.RecordMap{}),
 	}
 	decision, _ := cedar.Authorize(ps, entities, req)
@@ -34,7 +34,7 @@ permit (
 	}
 
 	// Different host denied
-	req.Resource = cedar.NewEntityUID("Net::Hostname", "other.example.com")
+	req.Resource = cedar.NewEntityUID("Host", "other.example.com")
 	decision, _ = cedar.Authorize(ps, entities, req)
 	if decision != cedar.Deny {
 		t.Fatalf("expected deny for non-matching host, got %q", decision)
@@ -43,8 +43,8 @@ permit (
 
 func TestCedarEval_ActionConnect_ForbidOverridesPermit(t *testing.T) {
 	policyText := `
-permit (principal, action == Action::"NetworkConnect", resource == Net::Hostname::"api.example.com");
-forbid (principal, action == Action::"NetworkConnect", resource == Net::Hostname::"api.example.com");
+permit (principal, action == Action::"NetworkConnect", resource == Host::"api.example.com");
+forbid (principal, action == Action::"NetworkConnect", resource == Host::"api.example.com");
 `
 	ps, err := cedar.NewPolicySetFromBytes("policies", []byte(policyText))
 	if err != nil {
@@ -54,7 +54,7 @@ forbid (principal, action == Action::"NetworkConnect", resource == Net::Hostname
 	req := cedar.Request{
 		Principal: cedar.NewEntityUID("User", "any"),
 		Action:    cedar.NewEntityUID("Action", "NetworkConnect"),
-		Resource:  cedar.NewEntityUID("Net::Hostname", "api.example.com"),
+		Resource:  cedar.NewEntityUID("Host", "api.example.com"),
 		Context:   cedar.NewRecord(cedar.RecordMap{}),
 	}
 	decision, _ := cedar.Authorize(ps, entities, req)
@@ -68,7 +68,7 @@ func TestCedarEval_FileRead_AllowsExactFile(t *testing.T) {
 permit (
   principal,
   action == Action::"FileOpenReadOnly",
-  resource == Fs::File::"/etc/hosts"
+  resource == File::"/etc/hosts"
 );`
 
 	ps, err := cedar.NewPolicySetFromBytes("policies", []byte(policyText))
@@ -80,7 +80,7 @@ permit (
 	req := cedar.Request{
 		Principal: cedar.NewEntityUID("User", "any"),
 		Action:    cedar.NewEntityUID("Action", "FileOpenReadOnly"),
-		Resource:  cedar.NewEntityUID("Fs::File", "/etc/hosts"),
+		Resource:  cedar.NewEntityUID("File", "/etc/hosts"),
 		Context:   cedar.NewRecord(cedar.RecordMap{}),
 	}
 	decision, _ := cedar.Authorize(ps, entities, req)
@@ -88,7 +88,7 @@ permit (
 		t.Fatalf("expected allow, got %q", decision)
 	}
 
-	req.Resource = cedar.NewEntityUID("Fs::File", "/etc/shadow")
+	req.Resource = cedar.NewEntityUID("File", "/etc/shadow")
 	decision, _ = cedar.Authorize(ps, entities, req)
 	if decision != cedar.Deny {
 		t.Fatalf("expected deny, got %q", decision)
@@ -110,7 +110,7 @@ permit (principal, action == Action::"NetworkConnect", resource) when { context.
 	req := cedar.Request{
 		Principal: cedar.NewEntityUID("User", "any"),
 		Action:    cedar.NewEntityUID("Action", "NetworkConnect"),
-		Resource:  cedar.NewEntityUID("Net::Hostname", "ignored"),
+		Resource:  cedar.NewEntityUID("Host", "ignored"),
 		Context:   cedar.NewRecord(cedar.RecordMap{"hostname": cedar.String("api.example.com")}),
 	}
 	decision, _ := cedar.Authorize(ps, entities, req)
@@ -138,7 +138,7 @@ func TestCedarEval_HttpRewrite_ContextConditions(t *testing.T) {
 permit (
   principal,
   action == Action::"HttpRewrite",
-  resource == Net::Hostname::"api.example.com"
+  resource == Host::"api.example.com"
 ) when { context.header == "X-Key" && context.value == "v" };`
 
 	ps, err := cedar.NewPolicySetFromBytes("policies", []byte(policyText))
@@ -150,7 +150,7 @@ permit (
 	req := cedar.Request{
 		Principal: cedar.NewEntityUID("User", "any"),
 		Action:    cedar.NewEntityUID("Action", "HttpRewrite"),
-		Resource:  cedar.NewEntityUID("Net::Hostname", "api.example.com"),
+		Resource:  cedar.NewEntityUID("Host", "api.example.com"),
 		Context: cedar.NewRecord(cedar.RecordMap{
 			"header": cedar.String("X-Key"),
 			"value":  cedar.String("v"),
@@ -209,16 +209,16 @@ permit (principal, action == Action::"NetworkConnect", resource in Net::DnsZone:
 
 func TestCedarEval_DirMembership_AllowsFileUnderDir(t *testing.T) {
 	policyText := `
-permit (principal, action == Action::"FileOpenReadOnly", resource in Fs::Directory::"/var/log");`
+permit (principal, action == Action::"FileOpenReadOnly", resource in Dir::"/var/log");`
 
 	ps, err := cedar.NewPolicySetFromBytes("policies", []byte(policyText))
 	if err != nil {
 		t.Fatalf("failed to parse cedar: %v", err)
 	}
 
-	dir := cedar.NewEntityUID("Fs::Directory", "/var/log")
-	file := cedar.NewEntityUID("Fs::File", "/var/log/syslog")
-	other := cedar.NewEntityUID("Fs::File", "/home/user/file")
+	dir := cedar.NewEntityUID("Dir", "/var/log")
+	file := cedar.NewEntityUID("File", "/var/log/syslog")
+	other := cedar.NewEntityUID("File", "/home/user/file")
 
 	entities := cedar.EntityMap{
 		dir:   cedar.Entity{UID: dir},

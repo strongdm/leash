@@ -280,7 +280,7 @@ func (b *domainBucket) addRule(rule lsm.PolicyRule) {
 
 func (b *domainBucket) toSuggestion() Suggestion {
 	wildcard := "*." + b.base
-	resource := fmt.Sprintf("Net::Hostname::\"%s\"", wildcard)
+	resource := fmt.Sprintf("Host::\"%s\"", wildcard)
 	proposed := fmt.Sprintf("%s (principal, action == Action::\"NetworkConnect\", resource == %s);", b.effect, resource)
 	summary := fmt.Sprintf("%s network connect to *.%s", strings.Title(b.effect), b.base)
 	md := map[string]string{"base_domain": b.base}
@@ -396,7 +396,7 @@ func (b *httpBucket) toSuggestion() Suggestion {
 	})
 	var sb strings.Builder
 	for _, p := range pairs {
-		sb.WriteString("permit (principal, action == Action::\"HttpRewrite\", resource == Net::Hostname::\"")
+		sb.WriteString("permit (principal, action == Action::\"HttpRewrite\", resource == Host::\"")
 		sb.WriteString(p.host)
 		sb.WriteString("\") when { context.header == \"")
 		sb.WriteString(p.header)

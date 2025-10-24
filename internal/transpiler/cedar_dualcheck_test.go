@@ -10,7 +10,7 @@ import (
 // Compare Cedar Authorize vs IR decision for DnsZone mapping. We intentionally
 // exercise a known divergence at the apex host and assert our linter warns.
 func TestDual_CedarDnsZone_vs_IRWildcard_ApexDivergenceWarned(t *testing.T) {
-	cedarText := `permit (principal, action == Net::"Connect", resource in Net::DnsZone::"example.com");`
+	cedarText := `permit (principal, action == Action::"NetworkConnect", resource in Net::DnsZone::"example.com");`
 
 	// Lint must warn that apex is excluded by IR mapping
 	rep, err := LintFromString(cedarText)
@@ -50,7 +50,7 @@ func TestDual_CedarDnsZone_vs_IRWildcard_ApexDivergenceWarned(t *testing.T) {
 	// Cedar: apex allow
 	decApex, _ := cedar.Authorize(psCedar, entities, cedar.Request{
 		Principal: cedar.NewEntityUID("User", "any"),
-		Action:    cedar.NewEntityUID("Net", "Connect"),
+		Action:    cedar.NewEntityUID("Action", "NetworkConnect"),
 		Resource:  apex,
 		Context:   cedar.NewRecord(cedar.RecordMap{}),
 	})
@@ -64,7 +64,7 @@ func TestDual_CedarDnsZone_vs_IRWildcard_ApexDivergenceWarned(t *testing.T) {
 	// Subdomain: both should allow
 	decSub, _ := cedar.Authorize(psCedar, entities, cedar.Request{
 		Principal: cedar.NewEntityUID("User", "any"),
-		Action:    cedar.NewEntityUID("Net", "Connect"),
+		Action:    cedar.NewEntityUID("Action", "NetworkConnect"),
 		Resource:  sub,
 		Context:   cedar.NewRecord(cedar.RecordMap{}),
 	})
@@ -79,7 +79,7 @@ func TestDual_CedarDnsZone_vs_IRWildcard_ApexDivergenceWarned(t *testing.T) {
 // When using context.hostname like "*.example.com", both Cedar and IR exclude apex
 // and include subdomains. Validate alignment.
 func TestDual_CedarHostnameLike_vs_IRWildcard_Aligned(t *testing.T) {
-	cedarText := `permit (principal, action == Net::"Connect", resource) when { context.hostname like "*.example.com" };`
+	cedarText := `permit (principal, action == Action::"NetworkConnect", resource) when { context.hostname like "*.example.com" };`
 
 	tr := NewCedarToLeashTranspiler()
 	ps, _, err := tr.TranspileFromString(cedarText)
@@ -94,7 +94,7 @@ func TestDual_CedarHostnameLike_vs_IRWildcard_Aligned(t *testing.T) {
 	// Apex denied by both
 	decApex, _ := cedar.Authorize(psCedar, entities, cedar.Request{
 		Principal: cedar.NewEntityUID("User", "any"),
-		Action:    cedar.NewEntityUID("Net", "Connect"),
+		Action:    cedar.NewEntityUID("Action", "NetworkConnect"),
 		Resource:  cedar.NewEntityUID("Net::Hostname", "example.com"),
 		Context:   cedar.NewRecord(cedar.RecordMap{"hostname": cedar.String("example.com")}),
 	})
@@ -108,7 +108,7 @@ func TestDual_CedarHostnameLike_vs_IRWildcard_Aligned(t *testing.T) {
 	// Subdomain allowed by both
 	decSub, _ := cedar.Authorize(psCedar, entities, cedar.Request{
 		Principal: cedar.NewEntityUID("User", "any"),
-		Action:    cedar.NewEntityUID("Net", "Connect"),
+		Action:    cedar.NewEntityUID("Action", "NetworkConnect"),
 		Resource:  cedar.NewEntityUID("Net::Hostname", "svc.example.com"),
 		Context:   cedar.NewRecord(cedar.RecordMap{"hostname": cedar.String("svc.example.com")}),
 	})
