@@ -12,9 +12,9 @@ import (
 	"testing"
 )
 
+// This test overrides configuration directories and must run serially so other
+// tests do not inherit the temporary paths.
 func TestLoadMissingFileReturnsDefaults(t *testing.T) {
-	t.Parallel()
-	lockEnv(t)
 	testSetEnv(t, "LEASH_HOME", "")
 	base := t.TempDir()
 	testSetEnv(t, "XDG_CONFIG_HOME", base)
@@ -44,9 +44,9 @@ func TestLoadMissingFileReturnsDefaults(t *testing.T) {
 	}
 }
 
+// This test writes config files to a temporary home and should be serial to
+// avoid leaking env overrides to concurrent tests.
 func TestSaveRoundTripPersistsGlobalAndProject(t *testing.T) {
-	t.Parallel()
-	lockEnv(t)
 	testSetEnv(t, "LEASH_HOME", "")
 	base := t.TempDir()
 	testSetEnv(t, "XDG_CONFIG_HOME", base)
@@ -119,9 +119,9 @@ func TestSaveRoundTripPersistsGlobalAndProject(t *testing.T) {
 	}
 }
 
+// This test mutates config env settings while persisting files; keep it serial
+// so parallel tests do not observe the temporary configuration.
 func TestTargetImageConfigPrecedence(t *testing.T) {
-	t.Parallel()
-	lockEnv(t)
 	testSetEnv(t, "LEASH_HOME", "")
 	base := t.TempDir()
 	testSetEnv(t, "XDG_CONFIG_HOME", base)
@@ -175,9 +175,9 @@ func TestTargetImageConfigPrecedence(t *testing.T) {
 	}
 }
 
+// This test rewrites HOME/XDG_CONFIG_HOME to parse env var config; run it
+// serially to prevent environment leakage.
 func TestEnvVarConfigPrecedenceAndParsing(t *testing.T) {
-	t.Parallel()
-	lockEnv(t)
 	testSetEnv(t, "LEASH_HOME", "")
 	base := t.TempDir()
 	testSetEnv(t, "XDG_CONFIG_HOME", base)
@@ -278,9 +278,9 @@ ZED = "ZAP"
 	}
 }
 
+// This test sets HOME and expands environment variables; execute serially to
+// prevent shared state leaks.
 func TestLoadProjectKeysWithExpansions(t *testing.T) {
-	t.Parallel()
-	lockEnv(t)
 	testSetEnv(t, "LEASH_HOME", "")
 	base := t.TempDir()
 	testSetEnv(t, "XDG_CONFIG_HOME", base)
@@ -350,8 +350,9 @@ codex = true
 	}
 }
 
+// This table-driven test updates config-related env vars; keep the parent
+// serial so subtests can safely mutate shared state.
 func TestLoadTargetImageCombinations(t *testing.T) {
-	t.Parallel()
 
 	type projectExpectation struct {
 		relPath       string
@@ -434,9 +435,8 @@ target_image = "ghcr.io/example/global:v2"
 
 	for _, tc := range cases {
 		tc := tc
+		// Each subtest rewrites HOME/XDG paths; do not run them in parallel.
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			lockEnv(t)
 			testSetEnv(t, "LEASH_HOME", "")
 			base := t.TempDir()
 			testSetEnv(t, "XDG_CONFIG_HOME", base)
@@ -553,8 +553,9 @@ target_image = "ghcr.io/example/global:v2"
 	}
 }
 
+// This test rewrites HOME-related configuration and must execute serially to
+// avoid sharing state with other tests.
 func TestLoadCustomVolumeSpecs(t *testing.T) {
-	lockEnv(t)
 	testSetEnv(t, "LEASH_HOME", "")
 	base := t.TempDir()
 	testSetEnv(t, "XDG_CONFIG_HOME", base)
@@ -611,9 +612,8 @@ codex = true
 	}
 }
 
+// This test sets HOME and config directories; keep it serial.
 func TestEffectiveVolumePrefersProject(t *testing.T) {
-	t.Parallel()
-	lockEnv(t)
 	testSetEnv(t, "LEASH_HOME", "")
 	base := t.TempDir()
 	testSetEnv(t, "XDG_CONFIG_HOME", base)
@@ -636,9 +636,8 @@ func TestEffectiveVolumePrefersProject(t *testing.T) {
 	}
 }
 
+// This test writes invalid config files in a temporary home; execute serially.
 func TestLoadCorruptTomlReturnsTypedError(t *testing.T) {
-	t.Parallel()
-	lockEnv(t)
 	testSetEnv(t, "LEASH_HOME", "")
 	base := t.TempDir()
 	testSetEnv(t, "XDG_CONFIG_HOME", base)
@@ -665,9 +664,9 @@ func TestLoadCorruptTomlReturnsTypedError(t *testing.T) {
 	}
 }
 
+// This test manipulates config directories and permissions; run serially to
+// avoid cross-test interference.
 func TestSaveUnwritableDirectoryFailsWithoutPartialFile(t *testing.T) {
-	t.Parallel()
-	lockEnv(t)
 	testSetEnv(t, "LEASH_HOME", "")
 	base := t.TempDir()
 	testSetEnv(t, "XDG_CONFIG_HOME", base)
@@ -706,8 +705,7 @@ func TestSetProjectVolumeNormalizesPaths(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink semantics differ on windows")
 	}
-	t.Parallel()
-	lockEnv(t)
+	// This test manipulates HOME while creating symlinks; keep it serial.
 	testSetEnv(t, "LEASH_HOME", "")
 	base := t.TempDir()
 	testSetEnv(t, "XDG_CONFIG_HOME", base)

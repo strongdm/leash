@@ -2,19 +2,8 @@ package configstore
 
 import (
 	"os"
-	"sync"
 	"testing"
 )
-
-var envMu sync.Mutex
-
-func lockEnv(t *testing.T) {
-	t.Helper()
-	envMu.Lock()
-	t.Cleanup(func() {
-		envMu.Unlock()
-	})
-}
 
 func testSetEnv(t *testing.T, key, value string) {
 	t.Helper()

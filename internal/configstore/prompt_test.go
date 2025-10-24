@@ -8,9 +8,9 @@ import (
 	"testing"
 )
 
+// This test mutates HOME and persists config state; keep it serial to avoid
+// leaking temporary directories to other tests.
 func TestMaybePromptInteractiveGlobalPersist(t *testing.T) {
-	t.Parallel()
-	lockEnv(t)
 	testSetEnv(t, "LEASH_HOME", "")
 	home := t.TempDir()
 	setHome(t, home)
@@ -54,9 +54,9 @@ func TestMaybePromptInteractiveGlobalPersist(t *testing.T) {
 	}
 }
 
+// This test alters HOME and project directories; run serially to protect shared
+// environment variables.
 func TestMaybePromptInteractiveProjectPersist(t *testing.T) {
-	t.Parallel()
-	lockEnv(t)
 	testSetEnv(t, "LEASH_HOME", "")
 	home := t.TempDir()
 	setHome(t, home)
@@ -90,9 +90,8 @@ func TestMaybePromptInteractiveProjectPersist(t *testing.T) {
 	}
 }
 
+// This test rewrites HOME while exercising ephemeral decisions; keep it serial.
 func TestMaybePromptInteractiveEphemeral(t *testing.T) {
-	t.Parallel()
-	lockEnv(t)
 	testSetEnv(t, "LEASH_HOME", "")
 	home := t.TempDir()
 	setHome(t, home)
@@ -124,9 +123,8 @@ func TestMaybePromptInteractiveEphemeral(t *testing.T) {
 	}
 }
 
+// This test rewires HOME to check non-interactive behavior; run serially.
 func TestMaybePromptNonInteractiveSkipsPrompt(t *testing.T) {
-	t.Parallel()
-	lockEnv(t)
 	testSetEnv(t, "LEASH_HOME", "")
 	home := t.TempDir()
 	setHome(t, home)
@@ -144,9 +142,8 @@ func TestMaybePromptNonInteractiveSkipsPrompt(t *testing.T) {
 	}
 }
 
+// This test writes config under a temporary HOME and must be serial.
 func TestMaybePromptSaveFailureFallsBackToEphemeral(t *testing.T) {
-	t.Parallel()
-	lockEnv(t)
 	testSetEnv(t, "LEASH_HOME", "")
 	home := t.TempDir()
 	setHome(t, home)
@@ -182,9 +179,8 @@ func TestMaybePromptSaveFailureFallsBackToEphemeral(t *testing.T) {
 	}
 }
 
+// This test mutates HOME and expects persisted decisions; keep it serial.
 func TestMaybePromptRespectsExistingDecision(t *testing.T) {
-	t.Parallel()
-	lockEnv(t)
 	testSetEnv(t, "LEASH_HOME", "")
 	home := t.TempDir()
 	setHome(t, home)
@@ -206,9 +202,8 @@ func TestMaybePromptRespectsExistingDecision(t *testing.T) {
 	}
 }
 
+// This test relies on HOME to detect missing host directories; run serially.
 func TestMaybePromptMissingHostDirSkips(t *testing.T) {
-	t.Parallel()
-	lockEnv(t)
 	testSetEnv(t, "LEASH_HOME", "")
 	home := t.TempDir()
 	setHome(t, home)

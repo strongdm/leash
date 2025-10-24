@@ -6,14 +6,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 )
 
+// This test resets many env vars to exercise temp workdir creation; keep it
+// serial to avoid leaking overrides.
 func TestLoadConfigCreatesTemporaryWorkDir(t *testing.T) {
-	t.Parallel()
-
-	lockEnv(t)
 	clearEnv(t, "LEASH_WORK_DIR")
 	clearEnv(t, "LEASH_LOG_DIR")
 	clearEnv(t, "LEASH_CFG_DIR")
@@ -53,10 +51,9 @@ func TestLoadConfigCreatesTemporaryWorkDir(t *testing.T) {
 	}
 }
 
+// This test sets LEASH_WORK_DIR explicitly; run serially to avoid affecting
+// other tests.
 func TestLoadConfigRespectsEnvWorkDir(t *testing.T) {
-	t.Parallel()
-
-	lockEnv(t)
 
 	caller := t.TempDir()
 	custom := filepath.Join(t.TempDir(), "manual")
@@ -81,14 +78,6 @@ func TestLoadConfigRespectsEnvWorkDir(t *testing.T) {
 	if cfg.workDir != custom {
 		t.Fatalf("expected workDir %q, got %q", custom, cfg.workDir)
 	}
-}
-
-var envMu sync.Mutex
-
-func lockEnv(t *testing.T) {
-	t.Helper()
-	envMu.Lock()
-	t.Cleanup(envMu.Unlock)
 }
 
 func clearEnv(t *testing.T, key string) {
@@ -159,10 +148,9 @@ func TestSanitizeProjectName(t *testing.T) {
 	}
 }
 
+// This test mutates env configuration while deriving container names; keep it
+// serial.
 func TestLoadConfigDefaultsContainerNamesFromProject(t *testing.T) {
-	t.Parallel()
-
-	lockEnv(t)
 	clearEnv(t, "LEASH_WORK_DIR")
 	clearEnv(t, "LEASH_LOG_DIR")
 	clearEnv(t, "LEASH_CFG_DIR")
@@ -198,10 +186,8 @@ func TestLoadConfigDefaultsContainerNamesFromProject(t *testing.T) {
 	}
 }
 
+// This test depends on TARGET_CONTAINER overrides; run serially.
 func TestLoadConfigRespectsTargetContainerEnv(t *testing.T) {
-	t.Parallel()
-
-	lockEnv(t)
 	clearEnv(t, "LEASH_WORK_DIR")
 	clearEnv(t, "LEASH_LOG_DIR")
 	clearEnv(t, "LEASH_CFG_DIR")
@@ -228,10 +214,8 @@ func TestLoadConfigRespectsTargetContainerEnv(t *testing.T) {
 	}
 }
 
+// This test reads TARGET_IMAGE from the environment; keep it serial.
 func TestLoadConfigRespectsTargetImageEnv(t *testing.T) {
-	t.Parallel()
-
-	lockEnv(t)
 	clearEnv(t, "LEASH_WORK_DIR")
 	clearEnv(t, "LEASH_LOG_DIR")
 	clearEnv(t, "LEASH_CFG_DIR")
@@ -253,10 +237,8 @@ func TestLoadConfigRespectsTargetImageEnv(t *testing.T) {
 	}
 }
 
+// This test inspects dev docker files with env overrides; run serially.
 func TestLoadConfigUsesDevDockerFiles(t *testing.T) {
-	t.Parallel()
-
-	lockEnv(t)
 	clearEnv(t, "LEASH_WORK_DIR")
 	clearEnv(t, "LEASH_LOG_DIR")
 	clearEnv(t, "LEASH_CFG_DIR")
@@ -305,10 +287,8 @@ func TestLoadConfigUsesDevDockerFiles(t *testing.T) {
 	}
 }
 
+// This test ensures env overrides beat dev docker files; keep it serial.
 func TestLoadConfigDevDockerFilesIgnoredWhenEnvOverrides(t *testing.T) {
-	t.Parallel()
-
-	lockEnv(t)
 	clearEnv(t, "LEASH_WORK_DIR")
 	clearEnv(t, "LEASH_LOG_DIR")
 	clearEnv(t, "LEASH_CFG_DIR")

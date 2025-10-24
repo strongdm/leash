@@ -166,9 +166,9 @@ func TestParseArgsEnvironmentMissingValue(t *testing.T) {
 	}
 }
 
+// This test manipulates process env variables to emulate Claude defaults; run
+// it serially to avoid leaking keys.
 func TestParseArgsAutoEnvClaude(t *testing.T) {
-	t.Parallel()
-	lockEnv(t)
 	setEnv(t, "ANTHROPIC_API_KEY", "anthropic-secret")
 	setEnv(t, "OPENAI_API_KEY", "ignored")
 	clearEnv(t, "IS_SANDBOX")
@@ -184,11 +184,10 @@ func TestParseArgsAutoEnvClaude(t *testing.T) {
 	}
 }
 
-// Claudes's sandbox flag is a bespoke passthrough; keep this test until the
-// ad-hoc handling in autoEnvLayer is removed.
+// Claudes's sandbox flag is a bespoke passthrough and this test rewrites env
+// state, so it must remain serial until the ad-hoc handling in autoEnvLayer is
+// removed.
 func TestParseArgsClaudeSandboxEnv(t *testing.T) {
-	t.Parallel()
-	lockEnv(t)
 	clearEnv(t, "ANTHROPIC_API_KEY")
 	setEnv(t, "IS_SANDBOX", "1")
 
@@ -206,8 +205,7 @@ func TestParseArgsClaudeSandboxEnv(t *testing.T) {
 // Mirrors the special-case override path for claude's sandbox flag; once the
 // flag goes away these expectations should disappear too.
 func TestParseArgsClaudeSandboxEnvOverride(t *testing.T) {
-	t.Parallel()
-	lockEnv(t)
+	// This test rewrites env overrides and must run serially.
 	setEnv(t, "IS_SANDBOX", "1")
 
 	opts, err := parseArgs([]string{
@@ -230,9 +228,9 @@ func TestParseArgsClaudeSandboxEnvOverride(t *testing.T) {
 	}
 }
 
+// This test sources env vars for codex; keep it serial to avoid cross-test
+// leakage.
 func TestParseArgsAutoEnvCodex(t *testing.T) {
-	t.Parallel()
-	lockEnv(t)
 	clearEnv(t, "ANTHROPIC_API_KEY")
 	setEnv(t, "OPENAI_API_KEY", "openai-secret")
 
@@ -247,9 +245,8 @@ func TestParseArgsAutoEnvCodex(t *testing.T) {
 	}
 }
 
+// This test ensures CLI-provided env overrides win; run serially.
 func TestParseArgsAutoEnvSkipsWhenProvided(t *testing.T) {
-	t.Parallel()
-	lockEnv(t)
 	setEnv(t, "ANTHROPIC_API_KEY", "anthropic-secret")
 
 	opts, err := parseArgs([]string{
@@ -275,9 +272,8 @@ func TestParseArgsAutoEnvSkipsWhenProvided(t *testing.T) {
 	}
 }
 
+// This test injects qwen credentials from the environment; keep it serial.
 func TestParseArgsAutoEnvQwen(t *testing.T) {
-	t.Parallel()
-	lockEnv(t)
 	setEnv(t, "DASHSCOPE_API_KEY", "dash-secret")
 
 	opts, err := parseArgs([]string{"--", "qwen"})
@@ -291,9 +287,8 @@ func TestParseArgsAutoEnvQwen(t *testing.T) {
 	}
 }
 
+// This test injects gemini credentials from the environment; keep it serial.
 func TestParseArgsAutoEnvGemini(t *testing.T) {
-	t.Parallel()
-	lockEnv(t)
 	setEnv(t, "GEMINI_API_KEY", "gemini-secret")
 
 	opts, err := parseArgs([]string{"--", "gemini"})
@@ -307,9 +302,8 @@ func TestParseArgsAutoEnvGemini(t *testing.T) {
 	}
 }
 
+// This test fans out multiple env injections; run serially.
 func TestParseArgsAutoEnvOpenCode(t *testing.T) {
-	t.Parallel()
-	lockEnv(t)
 	setEnv(t, "ANTHROPIC_API_KEY", "anthropic-secret")
 	clearEnv(t, "OPENAI_API_KEY")
 	setEnv(t, "GEMINI_API_KEY", "gemini-secret")
@@ -335,9 +329,8 @@ func TestParseArgsAutoEnvOpenCode(t *testing.T) {
 	}
 }
 
+// This test ensures CLI overrides beat host env values; keep it serial.
 func TestParseArgsOpenCodeRespectsOverrides(t *testing.T) {
-	t.Parallel()
-	lockEnv(t)
 	setEnv(t, "OPENAI_API_KEY", "host-secret")
 
 	opts, err := parseArgs([]string{
@@ -366,9 +359,8 @@ func TestParseArgsOpenCodeRespectsOverrides(t *testing.T) {
 	}
 }
 
+// This test manipulates env precedence and must be serial.
 func TestResolveEnvVarsPrecedence(t *testing.T) {
-	t.Parallel()
-	lockEnv(t)
 	setEnv(t, "OPENAI_API_KEY", "autop-openai")
 
 	args := []string{

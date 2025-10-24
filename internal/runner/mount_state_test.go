@@ -248,8 +248,9 @@ func TestInitMountStateUnsupportedCommand(t *testing.T) {
 	}
 }
 
+// This test rewrites HOME and XDG_CONFIG_HOME; keep it serial so concurrent tests
+// can't observe temporary directories.
 func TestInitMountStateWarnsWhenPersistedHostMissing(t *testing.T) {
-	t.Parallel()
 	mountStateTestMu.Lock()
 	t.Cleanup(mountStateTestMu.Unlock)
 
@@ -288,6 +289,8 @@ func TestInitMountStateWarnsWhenPersistedHostMissing(t *testing.T) {
 	}
 }
 
+// This test mutates HOME and XDG_CONFIG_HOME and must run before any parallel
+// tests so shared process environment stays coherent.
 func TestInitMountStateCreatesClaudeMountStateWithoutHostDir(t *testing.T) {
 	mountStateTestMu.Lock()
 	t.Cleanup(mountStateTestMu.Unlock)
