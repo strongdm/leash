@@ -529,7 +529,7 @@ func (rt *runtimeState) startFrontend() error {
 	title := ui.ComposeTitle(os.Getenv("LEASH_PROJECT"), os.Getenv("LEASH_COMMAND"))
 	mux.Handle("/", ui.NewSPAHandlerWithTitle(http.FS(uiFS), title))
 
-	api := newPolicyAPI(rt.policyManager, rt.cfg.PolicyPath, rt.wsHub)
+	api := newPolicyAPI(rt.policyManager, rt.cfg.PolicyPath, rt.wsHub, rt.mitmProxy, rt.wsHub)
 	api.register(mux)
 
 	// Suggestion API for raw suggestions preview

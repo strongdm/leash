@@ -1,18 +1,32 @@
 "use client";
 
-import { useCallback, useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Editor, { type Monaco } from "@monaco-editor/react";
+import type * as monacoEditor from "monaco-editor";
+import { AlertTriangle, Clipboard, Download } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { ensureCedarLanguage, CEDAR_LANGUAGE_ID } from "@/lib/policy/cedar-language";
+import {
+  fetchPolicyCompletions,
+  validateCedarPolicy,
+  type CompletionItem,
+  type LintIssue,
+} from "@/lib/policy/api";
 import { usePolicyBlocksContext } from "@/lib/policy/policy-blocks-context";
-import { validateCedarPolicy, type LintIssue } from "@/lib/policy/api";
-import { AlertTriangle, Clipboard, Download } from "lucide-react";
-import Editor from "react-simple-code-editor";
-import type { HLJSApi } from "highlight.js";
-import { loadCedarHighlighter } from "@/lib/highlighting";
 
 type Props = {
   showHeader?: boolean;
 };
+
+type SuggestionHelp = {
+  label: string;
+  detail?: string;
+  documentation?: string;
+};
+
+const VALIDATION_DEBOUNCE_MS = 500;
 
 export default function CedarEditor({ showHeader = true }: Props) {
   const {
@@ -29,43 +43,59 @@ export default function CedarEditor({ showHeader = true }: Props) {
     showNotice: contextShowNotice,
     notice,
   } = usePolicyBlocksContext();
-  const [highlighter, setHighlighter] = useState<HLJSApi | null>(null);
 
-  // Initialize draft from server data if empty
-  useEffect(() => {
-    if (editorDraft.trim() === "") {
-      const initialDraft = cedarRuntime || cedarFile || cedarBaseline || "";
-      setEditorDraft(initialDraft);
-    }
-  }, [cedarRuntime, cedarFile, cedarBaseline, editorDraft, setEditorDraft]);
+  const [copied, setCopied] = useState(false);
+  const [showShortcutTitle, setShowShortcutTitle] = useState(false);
+  const [suggestionHelp, setSuggestionHelp] = useState<SuggestionHelp | null>(null);
+  const shortcutHoverTimerRef = useRef<number | null>(null);
+  const editorRef = useRef<monacoEditor.editor.IStandaloneCodeEditor | null>(null);
+  const monacoRef = useRef<Monaco | null>(null);
+  const completionDisposableRef = useRef<monacoEditor.IDisposable | null>(null);
+  const completionAbortRef = useRef<AbortController | null>(null);
+  const isMountedRef = useRef(false);
+
+  const [confirm, setConfirm] = useState<{
+    summary: { allowAllConnect: boolean; allowConnect: number; denyConnect: number };
+    issues?: LintIssue[];
+    show: boolean;
+  } | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
-    loadCedarHighlighter()
-      .then((hl) => {
-        if (!cancelled) setHighlighter(hl);
-      })
-      .catch(() => {
-        if (!cancelled) setHighlighter(null);
-      });
+    isMountedRef.current = true;
     return () => {
-      cancelled = true;
+      isMountedRef.current = false;
+      completionDisposableRef.current?.dispose();
+      completionAbortRef.current?.abort();
     };
   }, []);
 
-  const highlightCedar = useCallback(
-    (code: string) => {
-      if (!highlighter) {
-        return escapeHtml(code);
-      }
-      try {
-        return highlighter.highlight(code, { language: "cedar" }).value;
-      } catch {
-        return escapeHtml(code);
-      }
-    },
-    [highlighter],
-  );
+  useEffect(() => {
+    if (!copied) {
+      return;
+    }
+    const timer = window.setTimeout(() => setCopied(false), 1500);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
+
+  const scheduleShortcutTitle = () => {
+    if (shortcutHoverTimerRef.current !== null) {
+      return;
+    }
+    shortcutHoverTimerRef.current = window.setTimeout(() => {
+      setShowShortcutTitle(true);
+      shortcutHoverTimerRef.current = null;
+    }, 1000);
+  };
+
+  const clearShortcutTitle = () => {
+    if (shortcutHoverTimerRef.current !== null) {
+      window.clearTimeout(shortcutHoverTimerRef.current);
+      shortcutHoverTimerRef.current = null;
+    }
+    if (showShortcutTitle) {
+      setShowShortcutTitle(false);
+    }
+  };
 
   const onSave = useCallback(async () => {
     const ok = await persistCedar(editorDraft, false);
@@ -79,31 +109,145 @@ export default function CedarEditor({ showHeader = true }: Props) {
     }
   }, [editorDraft, persistCedar, enforcementMode, applyEnforce, contextShowNotice]);
 
-  const [confirm, setConfirm] = useState<{
-    summary: { allowAllConnect: boolean; allowConnect: number; denyConnect: number };
-    issues?: LintIssue[];
-    show: boolean;
-  } | null>(null);
-
-  const [copied, setCopied] = useState(false);
-  const [showShortcutTitle, setShowShortcutTitle] = useState(false);
-  const shortcutHoverTimerRef = useRef<number | null>(null);
-
   useEffect(() => {
-    if (!copied) {
-      return;
-    }
-    const timer = window.setTimeout(() => setCopied(false), 1500);
-    return () => window.clearTimeout(timer);
-  }, [copied]);
-
-  useEffect(() => {
-    return () => {
-      if (shortcutHoverTimerRef.current !== null) {
-        window.clearTimeout(shortcutHoverTimerRef.current);
+    const handler = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        void onSave();
       }
     };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onSave]);
+
+  const registerCompletionProvider = useCallback(
+    (monaco: Monaco, editor: monacoEditor.editor.IStandaloneCodeEditor) => {
+      completionDisposableRef.current?.dispose();
+      completionDisposableRef.current = monaco.languages.registerCompletionItemProvider(CEDAR_LANGUAGE_ID, {
+        triggerCharacters: ['"', ':', '.', '/', '(', ',', '=', '!'],
+        async provideCompletionItems(model, position, _context, token) {
+          if (!isMountedRef.current) {
+            return { suggestions: [] };
+          }
+
+          const controller = new AbortController();
+          completionAbortRef.current?.abort();
+          completionAbortRef.current = controller;
+          token.onCancellationRequested(() => controller.abort());
+
+          try {
+            const response = await fetchPolicyCompletions(
+              {
+                cedar: model.getValue(),
+                cursor: { line: position.lineNumber, column: position.column },
+              },
+              controller.signal,
+            );
+
+            if (controller.signal.aborted) {
+              return { suggestions: [] };
+            }
+
+            if (response.items.length > 0) {
+              const top = response.items[0];
+              setSuggestionHelp({
+                label: top.label,
+                detail: top.detail,
+                documentation: top.documentation,
+              });
+            } else {
+              setSuggestionHelp(null);
+            }
+
+            const suggestions = response.items.map((item) => mapCompletionItem(monaco, item));
+            return { suggestions };
+          } catch {
+            if (!controller.signal.aborted) {
+              setSuggestionHelp(null);
+            }
+            return { suggestions: [] };
+          } finally {
+            if (completionAbortRef.current === controller) {
+              completionAbortRef.current = null;
+            }
+          }
+        },
+      });
+
+      editor.onDidDispose(() => {
+        completionDisposableRef.current?.dispose();
+        completionAbortRef.current?.abort();
+      });
+    },
+    [],
+  );
+
+  const handleBeforeMount = useCallback((monaco: Monaco) => {
+    ensureCedarLanguage(monaco);
   }, []);
+
+  const handleMount = useCallback(
+    (editor: monacoEditor.editor.IStandaloneCodeEditor, monaco: Monaco) => {
+      editorRef.current = editor;
+      monacoRef.current = monaco;
+
+      editor.updateOptions({
+        fontSize: 13,
+        minimap: { enabled: false },
+        tabSize: 2,
+        insertSpaces: true,
+        wordWrap: "on",
+        scrollBeyondLastLine: false,
+      });
+
+      registerCompletionProvider(monaco, editor);
+
+      // Clear existing markers when mounting to avoid stale warnings.
+      const model = editor.getModel();
+      if (model) {
+        monaco.editor.setModelMarkers(model, "cedar-lint", []);
+      }
+    },
+    [registerCompletionProvider],
+  );
+
+  useEffect(() => {
+    if (!editorRef.current || !monacoRef.current) {
+      return;
+    }
+    const monaco = monacoRef.current;
+    const editor = editorRef.current;
+    const model = editor.getModel();
+    if (!model) {
+      return;
+    }
+
+    if (!editorDraft.trim()) {
+      monaco.editor.setModelMarkers(model, "cedar-lint", []);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(async () => {
+      try {
+        const summary = await validateCedarPolicy(editorDraft, controller.signal);
+        if (controller.signal.aborted || !monacoRef.current) {
+          return;
+        }
+        const markers = createMarkers(monaco, editorDraft, summary.issues ?? []);
+        monaco.editor.setModelMarkers(model, "cedar-lint", markers);
+      } catch {
+        if (!controller.signal.aborted && monacoRef.current) {
+          monaco.editor.setModelMarkers(model, "cedar-lint", []);
+        }
+      }
+    }, VALIDATION_DEBOUNCE_MS);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeout);
+    };
+  }, [editorDraft]);
 
   const copyEditorContents = useCallback(async () => {
     if (typeof navigator === "undefined" || !navigator.clipboard) {
@@ -136,44 +280,19 @@ export default function CedarEditor({ showHeader = true }: Props) {
     window.setTimeout(() => window.URL.revokeObjectURL(url), 0);
   }, [editorDraft, cedarRuntime, cedarFile, cedarBaseline]);
 
-  const startPermissive = () => {
+  const startPermissive = useCallback(() => {
     if (!cedarBaseline) return;
     const next = editorDraft.trim() ? `${editorDraft}\n\n${cedarBaseline}` : cedarBaseline;
     setEditorDraft(next);
     contextShowNotice("Inserted permissive baseline");
-  };
+  }, [cedarBaseline, editorDraft, setEditorDraft, contextShowNotice]);
 
-  const scheduleShortcutTitle = () => {
-    if (shortcutHoverTimerRef.current !== null) {
-      return;
-    }
-    shortcutHoverTimerRef.current = window.setTimeout(() => {
-      setShowShortcutTitle(true);
-      shortcutHoverTimerRef.current = null;
-    }, 1000);
-  };
+  const isEditorEmpty = editorDraft.trim().length === 0;
 
-  const clearShortcutTitle = () => {
-    if (shortcutHoverTimerRef.current !== null) {
-      window.clearTimeout(shortcutHoverTimerRef.current);
-      shortcutHoverTimerRef.current = null;
-    }
-    if (showShortcutTitle) {
-      setShowShortcutTitle(false);
-    }
-  };
-
-  // Bind Cmd+S / Ctrl+S to Save
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
-        e.preventDefault();
-        void onSave();
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onSave]);
+  const placeholder = useMemo(
+    () => 'permit (principal, action == Action::"NetworkConnect", resource == Host::"api.example.com");',
+    [],
+  );
 
   return (
     <section className="space-y-3">
@@ -209,9 +328,9 @@ export default function CedarEditor({ showHeader = true }: Props) {
                     size="icon"
                     variant="ghost"
                     aria-label="Download policy"
+                    className="h-8 w-8 text-cyan-200 hover:text-cyan-100 hover:bg-cyan-500/10"
                     onClick={onDownloadPolicy}
-                    disabled={editorDraft.trim().length === 0}
-                    className="h-8 w-8 text-cyan-200 hover:text-cyan-100 hover:bg-cyan-500/10 disabled:opacity-30"
+                    disabled={editorDraft.trim().length === 0 && cedarRuntime.trim().length === 0 && cedarFile.trim().length === 0}
                   >
                     <Download className="size-4" />
                   </Button>
@@ -226,17 +345,36 @@ export default function CedarEditor({ showHeader = true }: Props) {
         </div>
       )}
 
-      <Editor
-        textareaId="cedar-editor"
-        value={editorDraft}
-        onValueChange={setEditorDraft}
-        highlight={highlightCedar}
-        padding={12}
-        className="cedar-highlight w-full text-cyan-200"
-        style={{ minHeight: 180 }}
-        placeholder={`permit (principal, action == Action::"NetworkConnect", resource == Host::"api.example.com");`}
-        tabSize={2}
-      />
+      <div className="relative border border-cyan-500/30 rounded-md overflow-hidden">
+        {isEditorEmpty && (
+          <span className="pointer-events-none absolute left-4 top-3 text-xs text-slate-400/70">{placeholder}</span>
+        )}
+        <Editor
+          height="260px"
+          defaultLanguage={CEDAR_LANGUAGE_ID}
+          language={CEDAR_LANGUAGE_ID}
+          value={editorDraft}
+          onChange={(value) => setEditorDraft(value ?? "")}
+          theme="vs-dark"
+          beforeMount={handleBeforeMount}
+          onMount={handleMount}
+          options={{
+            fontFamily: "var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace)",
+            fontLigatures: true,
+            padding: { top: 12, bottom: 12 },
+          }}
+        />
+      </div>
+
+      {suggestionHelp && (
+        <div className="text-xs text-slate-300/80 border border-cyan-500/20 rounded-md bg-slate-900/60 px-3 py-2">
+          <span className="font-semibold text-cyan-200">{suggestionHelp.label}</span>
+          {suggestionHelp.detail && <span className="ml-2 text-slate-300/70">{suggestionHelp.detail}</span>}
+          {suggestionHelp.documentation && (
+            <span className="block mt-1 text-slate-400/70 leading-snug">{suggestionHelp.documentation}</span>
+          )}
+        </div>
+      )}
 
       <div className="flex items-center justify-between gap-3">
         {submitError && (
@@ -249,10 +387,18 @@ export default function CedarEditor({ showHeader = true }: Props) {
             size="sm"
             onClick={async () => {
               try {
-                const s = await validateCedarPolicy(editorDraft);
-                const lintErrors = (s.issues || []).filter(i => i.severity === "error");
-                if (lintErrors.length > 0 || (!s.allowAllConnect && s.denyConnect > 0 && s.allowConnect === 0)) {
-                  setConfirm({ summary: { allowAllConnect: s.allowAllConnect, allowConnect: s.allowConnect, denyConnect: s.denyConnect }, issues: lintErrors, show: true });
+                const summary = await validateCedarPolicy(editorDraft);
+                const lintErrors = (summary.issues || []).filter((issue) => issue.severity === "error");
+                if (lintErrors.length > 0 || (!summary.allowAllConnect && summary.denyConnect > 0 && summary.allowConnect === 0)) {
+                  setConfirm({
+                    summary: {
+                      allowAllConnect: summary.allowAllConnect,
+                      allowConnect: summary.allowConnect,
+                      denyConnect: summary.denyConnect,
+                    },
+                    issues: lintErrors,
+                    show: true,
+                  });
                   return;
                 }
                 await onSave();
@@ -273,7 +419,7 @@ export default function CedarEditor({ showHeader = true }: Props) {
           </Button>
         </div>
       </div>
-      {/* Confirm modal for risky persist */}
+
       {confirm?.show && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="w-full max-w-md rounded-md border border-yellow-500/40 bg-slate-900 text-slate-200 p-4 space-y-3 shadow-xl">
@@ -290,10 +436,10 @@ export default function CedarEditor({ showHeader = true }: Props) {
               <div className="rounded-md border border-red-500/30 bg-red-950/30 p-2">
                 <div className="text-xs font-semibold text-red-300 mb-1">Lint errors ({confirm.issues.length})</div>
                 <ul className="list-disc ml-4 space-y-1 max-h-40 overflow-auto">
-                  {confirm.issues.slice(0, 5).map((i, idx) => (
+                  {confirm.issues.slice(0, 5).map((issue, idx) => (
                     <li key={idx} className="text-[11px] text-red-200/90">
-                      <span className="font-mono text-red-300">{i.code}</span>: {i.message}
-                      {i.suggestion && <span className="text-slate-300/80"> — {i.suggestion}</span>}
+                      <span className="font-mono text-red-300">{issue.code}</span>: {issue.message}
+                      {issue.suggestion && <span className="text-slate-300/80"> — {issue.suggestion}</span>}
                     </li>
                   ))}
                   {confirm.issues.length > 5 && (
@@ -303,15 +449,33 @@ export default function CedarEditor({ showHeader = true }: Props) {
               </div>
             )}
             <div className="flex justify-end gap-2">
-              <Button size="sm" variant="outline" className="border-slate-500/40" onClick={() => setConfirm(null)}>Cancel</Button>
-              <Button size="sm" className="border-cyan-500/40 text-cyan-200 hover:bg-cyan-500/20" variant="outline" onClick={async () => { setConfirm(null); const ok = await persistCedar(editorDraft, true); if (ok) { if (enforcementMode === "enforce") { await applyEnforce(); contextShowNotice("Saved and applied"); } else { contextShowNotice("Saved"); } } }}>
+              <Button size="sm" variant="outline" className="border-slate-500/40" onClick={() => setConfirm(null)}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                className="border-cyan-500/40 text-cyan-200 hover:bg-cyan-500/20"
+                variant="outline"
+                onClick={async () => {
+                  setConfirm(null);
+                  const ok = await persistCedar(editorDraft, true);
+                  if (ok) {
+                    if (enforcementMode === "enforce") {
+                      await applyEnforce();
+                      contextShowNotice("Saved and applied");
+                    } else {
+                      contextShowNotice("Saved");
+                    }
+                  }
+                }}
+              >
                 Save
               </Button>
             </div>
           </div>
         </div>
       )}
-      {/* Toast */}
+
       {notice && (
         <div className="fixed bottom-4 right-4 z-50">
           <div className="rounded-md border border-green-400/30 bg-slate-900/90 text-green-300 shadow-lg px-3 py-2 text-xs">
@@ -323,14 +487,69 @@ export default function CedarEditor({ showHeader = true }: Props) {
   );
 }
 
-const HTML_ESCAPE_LOOKUP: Record<string, string> = {
-  "&": "&amp;",
-  "<": "&lt;",
-  ">": "&gt;",
-  '"': "&quot;",
-  "'": "&#39;",
-};
+function mapCompletionItem(monaco: Monaco, item: CompletionItem): monacoEditor.languages.CompletionItem {
+  const range = new monaco.Range(item.range.start.line, item.range.start.column, item.range.end.line, item.range.end.column);
+  const kind = completionKindFor(monaco, item.kind);
+  const suggestion: monacoEditor.languages.CompletionItem = {
+    label: item.label,
+    kind,
+    insertText: item.insertText,
+    range,
+    sortText: item.sortText,
+    detail: item.detail,
+    documentation: item.documentation ? { value: item.documentation } : undefined,
+    commitCharacters: item.commitCharacters,
+  };
+  if (item.kind === "snippet") {
+    suggestion.insertTextRules = monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet;
+  }
+  return suggestion;
+}
 
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (character) => HTML_ESCAPE_LOOKUP[character] ?? character);
+function completionKindFor(monaco: Monaco, kind: CompletionItem["kind"]): monacoEditor.languages.CompletionItemKind {
+  const { CompletionItemKind } = monaco.languages;
+  const map: Record<CompletionItem["kind"], monacoEditor.languages.CompletionItemKind> = {
+    keyword: CompletionItemKind.Keyword,
+    action: CompletionItemKind.Function,
+    entityType: CompletionItemKind.Class,
+    resource: CompletionItemKind.Field,
+    conditionKey: CompletionItemKind.Variable,
+    snippet: CompletionItemKind.Snippet,
+    tool: CompletionItemKind.Interface,
+    server: CompletionItemKind.EnumMember,
+    header: CompletionItemKind.Property,
+  };
+  return map[kind] ?? CompletionItemKind.Text;
+}
+
+function createMarkers(monaco: Monaco, cedar: string, issues: LintIssue[]): monacoEditor.editor.IMarkerData[] {
+  if (!issues.length) {
+    return [];
+  }
+  const lines = cedar.split(/\r?\n/);
+  return issues.map((issue) => {
+    const line = findPolicyLine(lines, issue.policyId) ?? 1;
+    const message = issue.suggestion ? `${issue.message} — ${issue.suggestion}` : issue.message;
+    return {
+      severity: issue.severity === "error" ? monaco.MarkerSeverity.Error : monaco.MarkerSeverity.Warning,
+      startLineNumber: line,
+      endLineNumber: line,
+      startColumn: 1,
+      endColumn: 1,
+      message,
+      code: issue.code,
+    } satisfies monacoEditor.editor.IMarkerData;
+  });
+}
+
+function findPolicyLine(lines: string[], policyId: string): number | null {
+  if (!policyId) {
+    return null;
+  }
+  for (let idx = 0; idx < lines.length; idx += 1) {
+    if (lines[idx].includes(policyId)) {
+      return idx + 1;
+    }
+  }
+  return null;
 }

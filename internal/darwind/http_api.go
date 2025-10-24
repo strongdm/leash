@@ -20,10 +20,12 @@ import (
 	"sync"
 
 	cedarutil "github.com/strongdm/leash/internal/cedar"
+	autocomplete "github.com/strongdm/leash/internal/cedar/autocomplete"
 	"github.com/strongdm/leash/internal/lsm"
 	"github.com/strongdm/leash/internal/policy"
 	"github.com/strongdm/leash/internal/proxy"
 	"github.com/strongdm/leash/internal/transpiler"
+	websockethub "github.com/strongdm/leash/internal/websocket"
 )
 
 type policyBroadcaster interface {
@@ -48,10 +50,55 @@ type policyAPI struct {
 	//   - "permit-all": permissive runtime overlay loaded (does not alter file layer)
 	mode        string
 	broadcaster policyBroadcaster
+
+	mitmProxy *proxy.MITMProxy
+	wsHub     *websockethub.WebSocketHub
 }
 
-func newPolicyAPI(mgr *policy.Manager, policyPath string, broadcaster policyBroadcaster) *policyAPI {
-	api := &policyAPI{mgr: mgr, policyPath: policyPath, mode: "enforce", broadcaster: broadcaster}
+type completionCursor struct {
+	Line   int `json:"line"`
+	Column int `json:"column"`
+}
+
+type completionIDHints struct {
+	Tools   []string `json:"tools,omitempty"`
+	Servers []string `json:"servers,omitempty"`
+}
+
+type completionRequest struct {
+	Cedar    string            `json:"cedar"`
+	Cursor   completionCursor  `json:"cursor"`
+	MaxItems int               `json:"maxItems,omitempty"`
+	IDHints  completionIDHints `json:"idHints,omitempty"`
+}
+
+type completionResponseItem struct {
+	autocomplete.Item
+	Range autocomplete.ReplaceRange `json:"range"`
+}
+
+type completionResponse struct {
+	Items []completionResponseItem `json:"items"`
+}
+
+// newPolicyAPI wires the policy API surface while carrying the MITM proxy. The proxy
+// observes outbound MCP traffic (server + tool identifiers) and exposes those via
+// SnapshotMCPHints; buildCompletionHints consumes that data so the editor autocomplete
+// can suggest the same MCP servers/tools operators are actually calling.
+func newPolicyAPI(mgr *policy.Manager, policyPath string, broadcaster policyBroadcaster, mitmProxy *proxy.MITMProxy, wsHub *websockethub.WebSocketHub) *policyAPI {
+	api := &policyAPI{
+		mgr:         mgr,
+		policyPath:  policyPath,
+		mode:        "enforce",
+		broadcaster: broadcaster,
+		mitmProxy:   mitmProxy,
+		wsHub:       wsHub,
+	}
+	if api.wsHub == nil {
+		if hub, ok := broadcaster.(*websockethub.WebSocketHub); ok {
+			api.wsHub = hub
+		}
+	}
 	// Attempt to restore runtime Cedar on startup
 	if b, err := loadCedarRuntime(); err == nil && len(b) > 0 {
 		if comp, compErr := cedarutil.CompileString("cedar-runtime.cedar", string(b)); compErr == nil {
@@ -105,6 +152,7 @@ func (api *policyAPI) register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/policies", api.handlePolicies)
 	mux.HandleFunc("/api/policies/persist", api.handlePersistPolicies)
 	mux.HandleFunc("/api/policies/validate", api.handleValidatePolicies)
+	mux.HandleFunc("/api/policies/complete", api.handlePoliciesComplete)
 	mux.HandleFunc("/api/policies/permit-all", api.handlePermitAll)
 	mux.HandleFunc("/api/policies/enforce-apply", api.handleEnforceApply)
 	mux.HandleFunc("/api/policies/lines", api.handlePolicyLines)
@@ -652,6 +700,204 @@ func (api *policyAPI) handleValidatePolicies(w http.ResponseWriter, r *http.Requ
 		"allowAllConnect": allowAllConnect,
 		"issues":          issues,
 	})
+}
+
+func (api *policyAPI) handlePoliciesComplete(w http.ResponseWriter, r *http.Request) {
+	setCORS(w)
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	defer r.Body.Close()
+
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	var req completionRequest
+	if err := dec.Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": map[string]any{"message": fmt.Sprintf("invalid request: %v", err)}})
+		return
+	}
+
+	if req.Cursor.Line <= 0 || req.Cursor.Column <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": map[string]any{"message": "cursor line and column must be positive"}})
+		return
+	}
+
+	hints := api.buildCompletionHints(req.IDHints)
+	items, replaceRange, err := autocomplete.Complete(req.Cedar, req.Cursor.Line, req.Cursor.Column, req.MaxItems, hints)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": map[string]any{"message": err.Error()}})
+		return
+	}
+
+	resp := completionResponse{Items: make([]completionResponseItem, len(items))}
+	for i, item := range items {
+		resp.Items[i] = completionResponseItem{Item: item, Range: replaceRange}
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (api *policyAPI) buildCompletionHints(id completionIDHints) autocomplete.Hints {
+	var hints autocomplete.Hints
+
+	if api.mitmProxy != nil {
+		servers, tools := api.mitmProxy.SnapshotMCPHints()
+		hints.Servers = append(hints.Servers, servers...)
+		hints.Tools = append(hints.Tools, tools...)
+	}
+
+	if api.mgr != nil {
+		fileLSM, fileHTTP, runtimeLSM, runtimeHTTP := api.mgr.Snapshot()
+		collectPolicySetHints(&hints, fileLSM)
+		collectPolicySetHints(&hints, runtimeLSM)
+		collectHTTPHints(&hints, fileHTTP)
+		collectHTTPHints(&hints, runtimeHTTP)
+	}
+
+	if api.wsHub != nil {
+		hosts, headers := api.wsHub.SnapshotHints(256)
+		hints.Hosts = append(hints.Hosts, hosts...)
+		hints.Headers = append(hints.Headers, headers...)
+	}
+
+	hints.Servers = append(hints.Servers, id.Servers...)
+	hints.Tools = append(hints.Tools, id.Tools...)
+
+	hints.Servers = normalizeAndDedupe(hints.Servers, 24)
+	hints.Tools = normalizeAndDedupe(hints.Tools, 24)
+	hints.Hosts = normalizeAndDedupe(hints.Hosts, 32)
+	hints.Headers = normalizeAndDedupe(hints.Headers, 32)
+	hints.Files = normalizeAndDedupe(hints.Files, 32)
+	hints.Dirs = normalizeAndDedupe(hints.Dirs, 32)
+
+	return hints
+}
+
+func collectPolicySetHints(h *autocomplete.Hints, set *lsm.PolicySet) {
+	if h == nil || set == nil {
+		return
+	}
+	for _, rule := range set.Open {
+		path := policyRulePath(rule)
+		if path == "" {
+			continue
+		}
+		if rule.IsDirectory == 1 || strings.HasSuffix(path, "/") {
+			if !strings.HasSuffix(path, "/") {
+				path += "/"
+			}
+			h.Dirs = append(h.Dirs, path)
+		} else {
+			h.Files = append(h.Files, path)
+		}
+	}
+	for _, rule := range set.Exec {
+		if path := policyRulePath(rule); path != "" {
+			h.Files = append(h.Files, path)
+		}
+	}
+	for _, rule := range set.Connect {
+		if host := policyRuleHost(rule); host != "" {
+			h.Hosts = append(h.Hosts, host)
+		}
+	}
+	for _, rule := range set.MCP {
+		if server := strings.TrimSpace(rule.Server); server != "" {
+			h.Servers = append(h.Servers, server)
+		}
+		if tool := strings.TrimSpace(rule.Tool); tool != "" {
+			h.Tools = append(h.Tools, tool)
+		}
+	}
+}
+
+func collectHTTPHints(h *autocomplete.Hints, rules []proxy.HeaderRewriteRule) {
+	if h == nil || len(rules) == 0 {
+		return
+	}
+	for _, rule := range rules {
+		if host := strings.TrimSpace(rule.Host); host != "" {
+			h.Hosts = append(h.Hosts, host)
+		}
+		if header := strings.TrimSpace(rule.Header); header != "" {
+			h.Headers = append(h.Headers, header)
+		}
+	}
+}
+
+func policyRulePath(rule lsm.PolicyRule) string {
+	if rule.PathLen <= 0 {
+		return ""
+	}
+	n := int(rule.PathLen)
+	if n > len(rule.Path) {
+		n = len(rule.Path)
+	}
+	path := string(rule.Path[:n])
+	return strings.TrimSpace(path)
+}
+
+func policyRuleHost(rule lsm.PolicyRule) string {
+	if rule.HostnameLen > 0 {
+		n := int(rule.HostnameLen)
+		if n > len(rule.Hostname) {
+			n = len(rule.Hostname)
+		}
+		host := strings.TrimSpace(string(rule.Hostname[:n]))
+		if host == "" {
+			return ""
+		}
+		if rule.DestPort > 0 {
+			return fmt.Sprintf("%s:%d", host, rule.DestPort)
+		}
+		return host
+	}
+	if rule.DestIP == 0 {
+		return ""
+	}
+	ip := fmt.Sprintf("%d.%d.%d.%d",
+		(rule.DestIP>>24)&0xFF,
+		(rule.DestIP>>16)&0xFF,
+		(rule.DestIP>>8)&0xFF,
+		rule.DestIP&0xFF,
+	)
+	if rule.DestPort > 0 {
+		return fmt.Sprintf("%s:%d", ip, rule.DestPort)
+	}
+	return ip
+}
+
+func normalizeAndDedupe(values []string, limit int) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, raw := range values {
+		candidate := strings.TrimSpace(raw)
+		if candidate == "" {
+			continue
+		}
+		key := strings.ToLower(candidate)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, candidate)
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // handlePermitAll enables a permissive runtime-only overlay and sets UI mode.

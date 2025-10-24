@@ -23,6 +23,56 @@ curl -sS -X POST \
   http://localhost:18080/api/policies
 ```
 
+## Autocomplete Support
+
+The Control UI ships with a Monaco-based Cedar editor that consumes the daemon’s completion API. Suggestions are context-aware and cover keywords, actions, resources, MCP identifiers, HTTP rewrite snippets, and contextual keys such as `context.header`.
+
+### HTTP API
+
+The daemon exposes `POST /api/policies/complete`. Requests include the full Cedar buffer and the current cursor location:
+
+```bash
+curl -sS \
+  -H 'Content-Type: application/json' \
+  -d '{"cedar":"permit (principal, action == , resource);","cursor":{"line":1,"column":33}}' \
+  http://127.0.0.1:18080/api/policies/complete | jq
+```
+
+Example response excerpt:
+
+```json
+{
+  "items": [
+    {
+      "label": "Action::\"FileOpen\"",
+      "kind": "action",
+      "insertText": "Action::\"FileOpen\"",
+      "detail": "Allow reading or writing files (per v1 semantics)",
+      "documentation": "Maps to LSM file open rules.",
+      "range": {
+        "start": {"line": 1, "column": 29},
+        "end":   {"line": 1, "column": 33}
+      }
+    }
+  ]
+}
+```
+
+The completion engine blends static catalogs with runtime hints:
+
+- Active policy resources from the manager snapshot (files, directories, hosts, MCP servers/tools, HTTP headers).
+- Recent hostnames and header names observed by the websocket event ring.
+- MCP servers and tools captured by the proxy observer.
+
+The API always returns `200 OK` with a list of items; malformed Cedar, partial statements, and comment contexts yield empty lists rather than errors.
+
+### Control UI Behaviour
+
+- Syntax highlighting, bracket handling, and snippets are powered by Monaco.
+- Suggestions auto-update as the caret moves; Tab/Enter commits items, and snippets include tab stops.
+- Validation markers use `/api/policies/validate` and surface lint errors inline.
+- The UI displays short help text for the top-ranked suggestion beneath the editor.
+
 ## Statement Anatomy
 
 Every policy statement grants (`permit`) or denies (`forbid`) a combination of

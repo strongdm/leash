@@ -151,7 +151,7 @@ func serveDarwinHTTP(
 	})
 	mux.Handle("/", ui.NewSPAHandler(http.FS(uiFS)))
 
-	api := newPolicyAPI(policyManager, policyPath, wsHub)
+	api := newPolicyAPI(policyManager, policyPath, wsHub, nil, wsHub)
 	api.register(mux)
 
 	suggest := newSuggestAPI(policyManager, wsHub)
