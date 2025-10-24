@@ -278,9 +278,6 @@ func shouldRetry(err error, resp *http.Response) bool {
 	if resp.StatusCode >= 500 && resp.StatusCode <= 599 {
 		return true
 	}
-	if resp.StatusCode == 522 || resp.StatusCode == 524 || resp.StatusCode == 599 {
-		return true
-	}
 	return false
 }
 
