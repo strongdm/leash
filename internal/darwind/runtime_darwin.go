@@ -4,6 +4,7 @@ package darwind
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -32,6 +33,7 @@ import (
 	"github.com/strongdm/leash/internal/messages"
 	"github.com/strongdm/leash/internal/policy"
 	"github.com/strongdm/leash/internal/proxy"
+	"github.com/strongdm/leash/internal/telemetry/statsig"
 	"github.com/strongdm/leash/internal/ui"
 	websockethub "github.com/strongdm/leash/internal/websocket"
 )
@@ -43,6 +45,20 @@ func logPolicyEvent(event string, fields map[string]any) {
 		buf += " " + k + "=" + fmt.Sprint(v)
 	}
 	log.Printf(buf)
+	if event == "policy.update" {
+		failed := false
+		if fields != nil {
+			if value, ok := fields["error"]; ok {
+				switch typed := value.(type) {
+				case string:
+					failed = strings.TrimSpace(typed) != ""
+				default:
+					failed = true
+				}
+			}
+		}
+		statsig.IncPolicyUpdate(failed)
+	}
 }
 
 type runtimeConfig struct {
@@ -84,6 +100,9 @@ func Main(args []string) error {
 	if err != nil {
 		return err
 	}
+
+	statsig.Start(context.Background(), statsig.StartPayload{Mode: "darwin"})
+	defer statsig.Stop(context.Background())
 
 	if err := preFlight(cfg); err != nil {
 		return err

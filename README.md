@@ -115,6 +115,8 @@ leash -e MY_VAR=value codex bash
 
 Dive deeper with [CEDAR.md](docs/design/CEDAR.md) for ready-to-adapt snippets.
 
+- Telemetry details live in [docs/TELEMETRY.md](docs/TELEMETRY.md).
+
 ## Troubleshooting & Next Steps
 
 - Reset mount decisions or inspect config behavior with the tips in [CONFIG.md](docs/CONFIG.md#L1).
