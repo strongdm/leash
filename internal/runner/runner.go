@@ -23,6 +23,7 @@ import (
 	"github.com/strongdm/leash/internal/configstore"
 	"github.com/strongdm/leash/internal/entrypoint"
 	"github.com/strongdm/leash/internal/leashd/listen"
+	"github.com/strongdm/leash/internal/telemetry/statsig"
 )
 
 const (
@@ -163,6 +164,20 @@ func execute(cmdName string, args []string) error {
 	if len(opts.command) == 0 {
 		return fmt.Errorf("a command is required; provide one after '--'")
 	}
+
+	cliFlags := map[string]bool{
+		"policy_flag_provided": opts.policyOverride != "",
+		"listen_flag_provided": opts.listenSet,
+		"no_interactive_flag":  opts.noInteractive,
+		"open_ui_flag":         opts.openUI,
+	}
+
+	statsig.Start(context.Background(), statsig.StartPayload{
+		Mode:              "runner",
+		CLIFlags:          cliFlags,
+		SubcommandPresent: len(opts.command) > 0,
+	})
+	defer statsig.Stop(context.Background())
 
 	callerDir, err := os.Getwd()
 	if err != nil {

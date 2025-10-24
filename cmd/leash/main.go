@@ -10,6 +10,7 @@ import (
 	"github.com/strongdm/leash/internal/darwind"
 	"github.com/strongdm/leash/internal/leashd"
 	"github.com/strongdm/leash/internal/runner"
+	"github.com/strongdm/leash/internal/telemetry/statsig"
 )
 
 var (
@@ -19,6 +20,8 @@ var (
 )
 
 func main() {
+	statsig.Configure(version)
+
 	args := os.Args
 	if len(args) > 1 {
 		switch args[1] {
