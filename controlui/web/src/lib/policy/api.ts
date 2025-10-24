@@ -129,6 +129,52 @@ export type PatchPoliciesRequest = {
   applyMode?: "enforce";
 };
 
+export type CompletionCursor = {
+  line: number;
+  column: number;
+};
+
+export type CompletionRange = {
+  start: CompletionCursor;
+  end: CompletionCursor;
+};
+
+export type CompletionKind =
+  | "keyword"
+  | "action"
+  | "entityType"
+  | "resource"
+  | "conditionKey"
+  | "snippet"
+  | "tool"
+  | "server"
+  | "header";
+
+export type CompletionItem = {
+  label: string;
+  kind: CompletionKind;
+  insertText: string;
+  detail?: string;
+  documentation?: string;
+  sortText?: string;
+  commitCharacters?: string[];
+  range: CompletionRange;
+};
+
+export type CompletionResponse = {
+  items: CompletionItem[];
+};
+
+export type CompletionRequest = {
+  cedar: string;
+  cursor: CompletionCursor;
+  maxItems?: number;
+  idHints?: {
+    tools?: string[];
+    servers?: string[];
+  };
+};
+
 export async function fetchPolicyBlocks(signal?: AbortSignal): Promise<{
   blocks: PolicyBlock[];
   blocksActive: PolicyBlock[];
@@ -176,6 +222,23 @@ export async function fetchPolicyBlocks(signal?: AbortSignal): Promise<{
     cedarBaseline: data.cedarBaseline || "",
     enforcementMode: (data.enforcementMode ?? "enforce") as "enforce" | "permit-all",
   };
+}
+
+export async function fetchPolicyCompletions(request: CompletionRequest, signal?: AbortSignal): Promise<CompletionResponse> {
+  const base = resolveApiBase();
+  const res = await fetch(`${base}/api/policies/complete`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify(request),
+    signal,
+  });
+  if (!res.ok) {
+    return handleErrorResponse(res);
+  }
+  return (await res.json()) as CompletionResponse;
 }
 
 export async function persistCedarPolicy(cedar?: string, signal?: AbortSignal, force?: boolean): Promise<{

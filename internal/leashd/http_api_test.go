@@ -99,11 +99,29 @@ func policyRuleSlicesEqual(a, b []lsm.PolicyRule) bool {
 	return len(counts) == 0
 }
 
+func extractCaretCoords(t *testing.T, src string) (string, int, int) {
+	t.Helper()
+	const marker = "<caret>"
+	idx := strings.Index(src, marker)
+	if idx == -1 {
+		t.Fatalf("caret marker not found")
+	}
+	before := src[:idx]
+	after := src[idx+len(marker):]
+	line := strings.Count(before, "\n") + 1
+	lastNL := strings.LastIndex(before, "\n")
+	col := len(before) + 1
+	if lastNL != -1 {
+		col = len(before[lastNL+1:]) + 1
+	}
+	return before + after, line, col
+}
+
 func TestPoliciesCORSOptions(t *testing.T) {
 	t.Parallel()
 	mux := http.NewServeMux()
 	mgr := policy.NewManager(nil, func(*lsm.PolicySet, []proxy.HeaderRewriteRule) {})
-	api := newPolicyAPI(mgr, "", nil)
+	api := newPolicyAPI(mgr, "", nil, nil, nil)
 	api.register(mux)
 
 	req := httptest.NewRequest(http.MethodOptions, "/api/policies", nil)
@@ -121,7 +139,7 @@ func TestPoliciesPostZeroRuleGuard(t *testing.T) {
 	t.Parallel()
 	mux := http.NewServeMux()
 	mgr := policy.NewManager(nil, nil)
-	api := newPolicyAPI(mgr, "", nil)
+	api := newPolicyAPI(mgr, "", nil, nil, nil)
 	api.register(mux)
 
 	// cedar that produces no rules (empty)
@@ -139,7 +157,7 @@ func TestPoliciesPostJSONAccepts(t *testing.T) {
 	t.Parallel()
 	mux := http.NewServeMux()
 	mgr := policy.NewManager(nil, nil)
-	api := newPolicyAPI(mgr, "", nil)
+	api := newPolicyAPI(mgr, "", nil, nil, nil)
 	api.register(mux)
 
 	payload := map[string]string{"cedar": `permit(action, subject, resource) when { context.op == "connect" };`}
@@ -177,7 +195,7 @@ func TestPersistPoliciesEmptyBodyUsesRuntimeCedar(t *testing.T) {
 
 	mux := http.NewServeMux()
 	mgr := policy.NewManager(nil, nil)
-	api := newPolicyAPI(mgr, policyPath, nil)
+	api := newPolicyAPI(mgr, policyPath, nil, nil, nil)
 	api.register(mux)
 
 	seed := policy.DefaultCedar()
@@ -229,7 +247,7 @@ func TestPoliciesPatchAddPersistEnforce(t *testing.T) {
 	mux := http.NewServeMux()
 	mgr := policy.NewManager(nil, nil)
 	broadcast := &captureBroadcaster{}
-	api := newPolicyAPI(mgr, policyPath, broadcast)
+	api := newPolicyAPI(mgr, policyPath, broadcast, nil, nil)
 	api.register(mux)
 
 	body := map[string]any{
@@ -333,7 +351,7 @@ func TestPoliciesPatchPermitAllKeepsRuntimeOverlay(t *testing.T) {
 	mux := http.NewServeMux()
 	mgr := policy.NewManager(nil, nil)
 	broadcast := &captureBroadcaster{}
-	api := newPolicyAPI(mgr, policyPath, broadcast)
+	api := newPolicyAPI(mgr, policyPath, broadcast, nil, nil)
 	api.register(mux)
 
 	// Seed baseline policy so we have connect allows in file layer
@@ -413,7 +431,7 @@ func TestPoliciesPatchRequiresChanges(t *testing.T) {
 
 	mux := http.NewServeMux()
 	mgr := policy.NewManager(nil, nil)
-	api := newPolicyAPI(mgr, "", nil)
+	api := newPolicyAPI(mgr, "", nil, nil, nil)
 	api.register(mux)
 
 	req := httptest.NewRequest(http.MethodPatch, "/api/policies", bytes.NewBufferString(`{}`))
@@ -430,7 +448,7 @@ func TestPoliciesPostRejectsInternalConflict(t *testing.T) {
 
 	mux := http.NewServeMux()
 	mgr := policy.NewManager(nil, nil)
-	api := newPolicyAPI(mgr, "", nil)
+	api := newPolicyAPI(mgr, "", nil, nil, nil)
 	api.register(mux)
 
 	cedar := `
@@ -451,7 +469,7 @@ func TestAddPolicyFromActionDetectsConflict(t *testing.T) {
 
 	mux := http.NewServeMux()
 	mgr := policy.NewManager(nil, nil)
-	api := newPolicyAPI(mgr, "", nil)
+	api := newPolicyAPI(mgr, "", nil, nil, nil)
 	api.register(mux)
 
 	// First add an allow connect to api.openai.com
@@ -497,7 +515,7 @@ func TestPoliciesPatchAddMCPSpecificTool(t *testing.T) {
 
 	mux := http.NewServeMux()
 	mgr := policy.NewManager(nil, nil)
-	api := newPolicyAPI(mgr, policyPath, nil)
+	api := newPolicyAPI(mgr, policyPath, nil, nil, nil)
 	api.register(mux)
 
 	body := map[string]any{
@@ -545,7 +563,7 @@ func TestAddPolicyFromActionMCPSpecificTool(t *testing.T) {
 
 	mux := http.NewServeMux()
 	mgr := policy.NewManager(nil, nil)
-	api := newPolicyAPI(mgr, policyPath, nil)
+	api := newPolicyAPI(mgr, policyPath, nil, nil, nil)
 	api.register(mux)
 
 	body := map[string]any{
@@ -589,7 +607,7 @@ func TestPoliciesPatchRejectsConflict(t *testing.T) {
 
 	mux := http.NewServeMux()
 	mgr := policy.NewManager(nil, nil)
-	api := newPolicyAPI(mgr, policyPath, nil)
+	api := newPolicyAPI(mgr, policyPath, nil, nil, nil)
 	api.register(mux)
 
 	// Seed a permit connect for api.openai.com
@@ -631,7 +649,7 @@ func TestPersistPoliciesRejectsConflict(t *testing.T) {
 
 	mux := http.NewServeMux()
 	mgr := policy.NewManager(nil, nil)
-	api := newPolicyAPI(mgr, policyPath, nil)
+	api := newPolicyAPI(mgr, policyPath, nil, nil, nil)
 	api.register(mux)
 
 	cedar := `
@@ -655,4 +673,133 @@ when { resource in [ Host::"*" ] };
 	if w.Code != http.StatusConflict {
 		t.Fatalf("expected 409 Conflict for persist conflict, got %d: %s", w.Code, w.Body.String())
 	}
+}
+
+func TestPoliciesCompleteBasic(t *testing.T) {
+	t.Parallel()
+
+	mgr := policy.NewManager(nil, nil)
+	api := newPolicyAPI(mgr, "", nil, nil, nil)
+
+	reqBody := completionRequest{
+		Cedar:  "",
+		Cursor: completionCursor{Line: 1, Column: 1},
+	}
+	payload := new(bytes.Buffer)
+	if err := json.NewEncoder(payload).Encode(reqBody); err != nil {
+		t.Fatalf("encode request: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/policies/complete", payload)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	api.handlePoliciesComplete(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp completionResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(resp.Items) == 0 {
+		t.Fatalf("expected suggestions, got none")
+	}
+	if resp.Items[0].Label != "permit" {
+		t.Fatalf("expected first suggestion to be permit, got %q", resp.Items[0].Label)
+	}
+	if resp.Items[0].Range.Start.Line != 1 || resp.Items[0].Range.Start.Column != 1 {
+		t.Fatalf("unexpected range: %+v", resp.Items[0].Range)
+	}
+}
+
+func TestPoliciesCompleteRejectsInvalidCursor(t *testing.T) {
+	t.Parallel()
+
+	mgr := policy.NewManager(nil, nil)
+	api := newPolicyAPI(mgr, "", nil, nil, nil)
+
+	reqBody := completionRequest{
+		Cedar:  "",
+		Cursor: completionCursor{Line: 0, Column: 0},
+	}
+	payload := new(bytes.Buffer)
+	if err := json.NewEncoder(payload).Encode(reqBody); err != nil {
+		t.Fatalf("encode request: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/policies/complete", payload)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	api.handlePoliciesComplete(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request, got %d", w.Code)
+	}
+}
+
+func TestPoliciesCompleteUsesPolicyHints(t *testing.T) {
+	t.Parallel()
+
+	mgr := policy.NewManager(nil, nil)
+
+	hostRule := lsm.PolicyRule{
+		Action:      lsm.PolicyAllow,
+		Operation:   lsm.OpConnect,
+		DestPort:    443,
+		HostnameLen: int32(len("example.com")),
+	}
+	copy(hostRule.Hostname[:], []byte("example.com"))
+	if err := mgr.SetRuntimeRules(&lsm.PolicySet{Connect: []lsm.PolicyRule{hostRule}}, nil); err != nil {
+		t.Fatalf("set runtime rules: %v", err)
+	}
+
+	api := newPolicyAPI(mgr, "", nil, nil, nil)
+
+	src := `permit (principal, action == Action::"FileOpen", resource) when { resource in [ <caret> ] };`
+	cedar, line, col := extractCaretCoords(t, src)
+	reqBody := completionRequest{
+		Cedar:  cedar,
+		Cursor: completionCursor{Line: line, Column: col},
+	}
+
+	payload := new(bytes.Buffer)
+	if err := json.NewEncoder(payload).Encode(reqBody); err != nil {
+		t.Fatalf("encode request: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/policies/complete", payload)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	api.handlePoliciesComplete(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp completionResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(resp.Items) == 0 {
+		t.Fatalf("expected suggestions, got none")
+	}
+	if !containsLabel(resp.Items, `Host::"example.com"`) {
+		t.Fatalf("expected host hint in suggestions, got %+v", labels(resp.Items))
+	}
+}
+
+func containsLabel(items []completionResponseItem, label string) bool {
+	for _, item := range items {
+		if item.Label == label {
+			return true
+		}
+	}
+	return false
+}
+
+func labels(items []completionResponseItem) []string {
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		out = append(out, item.Label)
+	}
+	return out
 }

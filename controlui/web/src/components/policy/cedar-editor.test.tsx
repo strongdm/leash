@@ -1,35 +1,25 @@
-import { render, waitFor, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import CedarEditor from "./cedar-editor";
-import type { HLJSApi } from "highlight.js";
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { loadCedarHighlighter } from "@/lib/highlighting";
+import type { Monaco } from "@monaco-editor/react";
+import type * as monacoEditor from "monaco-editor";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+
 import { usePolicyBlocksContext } from "@/lib/policy/policy-blocks-context";
+import {
+  fetchPolicyCompletions,
+  validateCedarPolicy,
+} from "@/lib/policy/api";
 
 vi.mock("@/lib/policy/policy-blocks-context", () => ({
   usePolicyBlocksContext: vi.fn(),
 }));
 
-vi.mock("@/lib/highlighting", () => ({
-  loadCedarHighlighter: vi.fn(),
-}));
-
-vi.mock("@/lib/policy/api", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/policy/api")>("@/lib/policy/api");
-  return {
-    ...actual,
-    validateCedarPolicy: vi.fn(async () => ({
-      allowAllConnect: true,
-      allowConnect: 1,
-      denyConnect: 0,
-      issues: [],
-    })),
-  };
-});
-
 const mockContext = vi.mocked(usePolicyBlocksContext);
-const mockLoader = vi.mocked(loadCedarHighlighter);
 
-const SAMPLE_POLICY = 'permit (principal, action, resource);';
+let fetchSpy: vi.MockedFunction<typeof fetchPolicyCompletions>;
+let validateSpy: vi.MockedFunction<typeof validateCedarPolicy>;
+
+const SAMPLE_POLICY = 'permit (principal, action == Action::"FileOpen", resource);';
 
 type CedarEditorContextStub = {
   cedarRuntime: string;
@@ -53,64 +43,217 @@ function createContext(overrides: Partial<CedarEditorContextStub> = {}): CedarEd
     cedarBaseline: "",
     submitting: false,
     submitError: null,
-    persistCedar: vi.fn<(cedar?: string, force?: boolean) => Promise<boolean>>(async () => true),
-    applyEnforce: vi.fn<[], Promise<boolean>>(async () => true),
+    persistCedar: vi.fn(async () => true),
+    applyEnforce: vi.fn(async () => true),
     enforcementMode: "enforce",
     editorDraft: SAMPLE_POLICY,
-    setEditorDraft: vi.fn<(value: string) => void>(),
-    showNotice: vi.fn<(message: string) => void>(),
+    setEditorDraft: vi.fn(),
+    showNotice: vi.fn(),
     notice: null,
   };
   return { ...defaults, ...overrides };
 }
 
-beforeEach(() => {
-  vi.clearAllMocks();
-});
+let registeredProvider: monacoEditor.languages.CompletionItemProvider | null = null;
+let currentModelValue = SAMPLE_POLICY;
 
-afterEach(() => {
-  mockLoader.mockReset();
-});
+const fakeModel = {
+  getValue: () => currentModelValue,
+};
 
-test("highlights cedar keywords once the highlighter loads", async () => {
-  mockContext.mockReturnValue(createContext());
-  const highlightMock = vi.fn(() => ({
-    value: '<span class="hljs-keyword">permit</span> resource',
-  }));
-  mockLoader.mockResolvedValue({
-    highlight: highlightMock,
-  } as unknown as HLJSApi);
+const fakeEditor: Partial<monacoEditor.editor.IStandaloneCodeEditor> = {
+  getModel: () => fakeModel as monacoEditor.editor.ITextModel,
+  updateOptions: vi.fn(),
+  onDidDispose: vi.fn(),
+};
 
-  render(<CedarEditor />);
-
-  await waitFor(() => expect(highlightMock).toHaveBeenCalled());
-  const highlighted = document.querySelectorAll(".hljs-keyword");
-  expect(highlighted.length).toBeGreaterThan(0);
-  expect(highlighted[0]?.textContent).toBe("permit");
-});
-
-test("escapes HTML if the highlighter throws", async () => {
-  const sample = '<script>alert("x")</script>';
-  mockContext.mockReturnValue(
-    createContext({
-      editorDraft: sample,
+const fakeMonaco = {
+  languages: {
+    register: vi.fn(),
+    setLanguageConfiguration: vi.fn(),
+    setMonarchTokensProvider: vi.fn(),
+    registerCompletionItemProvider: vi.fn((languageId: string, provider: monacoEditor.languages.CompletionItemProvider) => {
+      registeredProvider = provider;
+      return { dispose: vi.fn() } as monacoEditor.IDisposable;
     }),
-  );
-  mockLoader.mockResolvedValue({
-    highlight: vi.fn(() => {
-      throw new Error("boom");
-    }),
-  } as unknown as HLJSApi);
+    CompletionItemInsertTextRule: { InsertAsSnippet: 4 },
+    CompletionItemKind: {
+      Keyword: 14,
+      Function: 3,
+      Class: 5,
+      Field: 4,
+      Variable: 6,
+      Snippet: 27,
+      Interface: 7,
+      EnumMember: 12,
+      Property: 9,
+      Text: 0,
+    },
+  },
+  editor: {
+    setModelMarkers: vi.fn(),
+    MarkerSeverity: { Error: 8, Warning: 4 },
+  },
+  Range: class Range {
+    constructor(
+      public startLineNumber: number,
+      public startColumn: number,
+      public endLineNumber: number,
+      public endColumn: number,
+    ) {}
+  },
+} as unknown as Monaco;
 
-  render(<CedarEditor />);
+type MockEditorProps = {
+  value?: string;
+  beforeMount?: (monaco: Monaco) => void;
+  onMount?: (editor: monacoEditor.editor.IStandaloneCodeEditor, monaco: Monaco) => void;
+  onChange?: (value: string | undefined) => void;
+};
 
-  await waitFor(() => {
-    expect(mockLoader).toHaveBeenCalled();
+vi.mock("@monaco-editor/react", () => {
+  const Component = (props: MockEditorProps) => {
+    currentModelValue = props.value ?? "";
+    props.beforeMount?.(fakeMonaco);
+    props.onMount?.(fakeEditor as monacoEditor.editor.IStandaloneCodeEditor, fakeMonaco);
+    return (
+      <textarea
+        data-testid="mock-editor"
+        value={props.value ?? ""}
+        onChange={(event) => {
+          currentModelValue = event.target.value;
+          props.onChange?.(event.target.value);
+        }}
+      />
+    );
+  };
+  return { default: Component };
+});
+
+vi.mock("@/lib/policy/api", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/policy/api")>("@/lib/policy/api");
+  return {
+    ...actual,
+    fetchPolicyCompletions: vi.fn(),
+    validateCedarPolicy: vi.fn(),
+  };
+});
+
+function createCancellationToken(): monacoEditor.CancellationToken {
+  return {
+    isCancellationRequested: false,
+    onCancellationRequested: () => ({ dispose: vi.fn() }),
+  } as unknown as monacoEditor.CancellationToken;
+}
+
+describe("CedarEditor", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    registeredProvider = null;
+    currentModelValue = SAMPLE_POLICY;
+
+    fetchSpy = vi.mocked(fetchPolicyCompletions);
+    fetchSpy.mockResolvedValue({
+      items: [
+        {
+          label: 'Action::"FileOpen"',
+          kind: "action",
+          insertText: 'Action::"FileOpen"',
+          detail: "Allow reading or writing files",
+          documentation: "Applies to file open operations.",
+          range: {
+            start: { line: 1, column: 1 },
+            end: { line: 1, column: 1 },
+          },
+        },
+      ],
+    });
+
+    validateSpy = vi.mocked(validateCedarPolicy);
+    validateSpy.mockResolvedValue({
+      allowAllConnect: true,
+      allowConnect: 1,
+      denyConnect: 0,
+      issues: [
+        {
+          policyId: "Policy::Example",
+          severity: "error",
+          code: "unsupported_action",
+          message: "Action not supported",
+        },
+      ],
+    });
   });
-  const textarea = screen.getByDisplayValue(sample) as HTMLTextAreaElement;
-  expect(textarea).toBeDefined();
-  const codeLayer = document.querySelector(".cedar-highlight pre");
-  expect(codeLayer).not.toBeNull();
-  expect(codeLayer?.innerHTML ?? "").toContain("&lt;script&gt;");
-  expect(document.querySelector(".cedar-highlight script")).toBeNull();
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  test("updates editor draft when user types", () => {
+    const context = createContext();
+    mockContext.mockReturnValue(context);
+
+    render(<CedarEditor />);
+
+    const textarea = screen.getByTestId("mock-editor") as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "permit (principal, action, resource);" } });
+
+    expect(context.setEditorDraft).toHaveBeenCalledWith("permit (principal, action, resource);");
+  });
+
+  test("registers completion provider and shows suggestion help", async () => {
+    mockContext.mockReturnValue(createContext());
+
+    render(<CedarEditor />);
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(fakeMonaco.languages.registerCompletionItemProvider).toHaveBeenCalledWith(
+      "cedar",
+      expect.any(Object),
+    );
+
+    const provider = registeredProvider;
+    expect(provider).not.toBeNull();
+
+    let result: monacoEditor.languages.CompletionList | undefined;
+    await act(async () => {
+      result = await provider!.provideCompletionItems(
+        fakeModel as monacoEditor.editor.ITextModel,
+        { lineNumber: 1, column: 1 },
+        {} as monacoEditor.languages.CompletionContext,
+        createCancellationToken(),
+      );
+    });
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cedar: SAMPLE_POLICY,
+        cursor: { line: 1, column: 1 },
+      }),
+      expect.any(AbortSignal),
+    );
+    expect(result?.suggestions?.length ?? 0).toBeGreaterThan(0);
+  });
+
+  test("applies validation markers", async () => {
+    mockContext.mockReturnValue(createContext());
+
+    render(<CedarEditor />);
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      vi.runOnlyPendingTimers();
+      await Promise.resolve();
+    });
+
+    expect(validateSpy).toHaveBeenCalled();
+    expect(fakeMonaco.editor.setModelMarkers).toHaveBeenCalled();
+  });
 });

@@ -18,6 +18,8 @@ import (
 const (
 	defaultMCPSniffLimit = int64(1 * 1024 * 1024) // 1MB
 	defaultSSEEventLimit = 10
+	maxObservedServers   = 32
+	maxObservedTools     = 32
 )
 
 // MCPMode controls whether MCP observability is active and which attributes are logged.
@@ -46,6 +48,10 @@ type mcpObserver struct {
 	sessionMu  sync.RWMutex
 	sessions   map[string]*sessionInfo
 	forceParse bool
+
+	observedMu    sync.RWMutex
+	recentServers []string
+	recentTools   []string
 }
 
 type mcpRequestContext struct {
@@ -89,6 +95,30 @@ func newMCPObserver(cfg MCPConfig, logger *lsm.SharedLogger) *mcpObserver {
 		telemetry: cfg.Telemetry,
 		sessions:  make(map[string]*sessionInfo),
 	}
+}
+
+// SnapshotServers returns the most recently observed MCP servers.
+func (o *mcpObserver) SnapshotServers() []string {
+	if o == nil {
+		return nil
+	}
+	o.observedMu.RLock()
+	defer o.observedMu.RUnlock()
+	out := make([]string, len(o.recentServers))
+	copy(out, o.recentServers)
+	return out
+}
+
+// SnapshotTools returns the most recently observed MCP tools.
+func (o *mcpObserver) SnapshotTools() []string {
+	if o == nil {
+		return nil
+	}
+	o.observedMu.RLock()
+	defer o.observedMu.RUnlock()
+	out := make([]string, len(o.recentTools))
+	copy(out, o.recentTools)
+	return out
 }
 
 func (o *mcpObserver) setForceParse(enabled bool) {
@@ -145,6 +175,13 @@ func (o *mcpObserver) inspectHTTPRequest(req *http.Request, server string) (*mcp
 	}
 
 	ctx.sampled = true
+
+	if ctx.server != "" {
+		o.rememberServer(ctx.server)
+	}
+	if ctx.tool != "" {
+		o.rememberTool(ctx.tool)
+	}
 
 	if disabled {
 		return ctx, nil
@@ -269,6 +306,10 @@ func (o *mcpObserver) logHTTPRequest(ctx *mcpRequestContext, status int, outcome
 		sb.WriteString(` tool="`)
 		sb.WriteString(escapeQuotes(ctx.tool))
 		sb.WriteString(`"`)
+	}
+
+	if ctx.tool != "" {
+		o.rememberTool(ctx.tool)
 	}
 
 	if ctx.id != "" && o.cfg.Mode != MCPModeOff {
@@ -641,6 +682,55 @@ func shortError(err error) string {
 	return msg
 }
 
+func (o *mcpObserver) rememberServer(server string) {
+	if o == nil {
+		return
+	}
+	server = strings.TrimSpace(server)
+	if server == "" {
+		return
+	}
+	o.observedMu.Lock()
+	defer o.observedMu.Unlock()
+	o.recentServers = rememberValue(o.recentServers, server, maxObservedServers)
+}
+
+func (o *mcpObserver) rememberTool(tool string) {
+	if o == nil {
+		return
+	}
+	tool = strings.TrimSpace(tool)
+	if tool == "" {
+		return
+	}
+	o.observedMu.Lock()
+	defer o.observedMu.Unlock()
+	o.recentTools = rememberValue(o.recentTools, tool, maxObservedTools)
+}
+
+func rememberValue(existing []string, value string, limit int) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return existing
+	}
+	normalized := strings.ToLower(value)
+	out := make([]string, 0, len(existing)+1)
+	out = append(out, value)
+	for _, v := range existing {
+		if strings.EqualFold(v, value) || strings.ToLower(v) == normalized {
+			continue
+		}
+		out = append(out, v)
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}
+
 func escapeQuotes(s string) string {
 	return strings.ReplaceAll(s, `"`, `'`)
 }
@@ -753,6 +843,10 @@ func (o *mcpObserver) logStreamRequest(ctx *mcpRequestContext, env *parsedEnvelo
 		sb.WriteString(` tool="`)
 		sb.WriteString(escapeQuotes(env.ToolName))
 		sb.WriteString(`"`)
+	}
+
+	if env.ToolName != "" {
+		o.rememberTool(env.ToolName)
 	}
 
 	if env.ID != "" {

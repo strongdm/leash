@@ -128,6 +128,14 @@ func NewMITMProxy(port string, headerRewriter *HeaderRewriter, policyChecker Pol
 	return proxy, nil
 }
 
+// SnapshotMCPHints returns the most recently observed MCP servers and tools.
+func (p *MITMProxy) SnapshotMCPHints() (servers []string, tools []string) {
+	if p == nil || p.mcpObserver == nil {
+		return nil, nil
+	}
+	return p.mcpObserver.SnapshotServers(), p.mcpObserver.SnapshotTools()
+}
+
 // getOriginalDest gets the original destination using SO_ORIGINAL_DST
 func getOriginalDest(conn net.Conn) (string, error) {
 	tcpConn, ok := conn.(*net.TCPConn)

@@ -514,6 +514,61 @@ func (h *WebSocketHub) RecentEvents(limit int) []LogEntry {
 	return h.eventBuffer.GetTail(limit)
 }
 
+// SnapshotHints extracts recent hostnames and header names from the ring buffer.
+func (h *WebSocketHub) SnapshotHints(limit int) (hosts []string, headers []string) {
+	if h == nil || h.eventBuffer == nil {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 512
+	}
+	events := h.eventBuffer.GetTail(limit)
+
+	hostSeen := make(map[string]struct{})
+	headerSeen := make(map[string]struct{})
+	const hintCap = 16
+
+	for i := len(events) - 1; i >= 0; i-- {
+		entry := events[i]
+		candidates := []string{
+			entry.Hostname,
+			entry.HostnameObserved,
+			entry.HostnameResolved,
+			entry.Domain,
+		}
+		if entry.Addr != "" && strings.Contains(entry.Addr, ":") {
+			candidates = append(candidates, entry.Addr)
+		}
+		for _, value := range candidates {
+			if len(hosts) >= hintCap {
+				break
+			}
+			value = strings.TrimSpace(value)
+			if value == "" {
+				continue
+			}
+			key := strings.ToLower(value)
+			if _, ok := hostSeen[key]; ok {
+				continue
+			}
+			hostSeen[key] = struct{}{}
+			hosts = append(hosts, value)
+		}
+
+		if entry.Header != "" && len(headers) < hintCap {
+			value := strings.TrimSpace(entry.Header)
+			if value != "" {
+				key := strings.ToLower(value)
+				if _, ok := headerSeen[key]; !ok {
+					headerSeen[key] = struct{}{}
+					headers = append(headers, value)
+				}
+			}
+		}
+	}
+	return hosts, headers
+}
+
 func (h *WebSocketHub) emitHello() {
 	entry := LogEntry{
 		Time:      time.Now().Format(time.RFC3339),
