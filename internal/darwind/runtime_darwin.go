@@ -46,18 +46,7 @@ func logPolicyEvent(event string, fields map[string]any) {
 	}
 	log.Printf(buf)
 	if event == "policy.update" {
-		failed := false
-		if fields != nil {
-			if value, ok := fields["error"]; ok {
-				switch typed := value.(type) {
-				case string:
-					failed = strings.TrimSpace(typed) != ""
-				default:
-					failed = true
-				}
-			}
-		}
-		statsig.IncPolicyUpdate(failed)
+		statsig.RecordPolicyUpdate(fields)
 	}
 }
 

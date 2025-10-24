@@ -97,6 +97,22 @@ func IncPolicyUpdate(failed bool) {
 	getClient().incPolicyUpdate(failed)
 }
 
+// RecordPolicyUpdate inspects the provided fields and increments policy update counters.
+func RecordPolicyUpdate(fields map[string]any) {
+	failed := false
+	if fields != nil {
+		if value, ok := fields["error"]; ok {
+			switch typed := value.(type) {
+			case string:
+				failed = strings.TrimSpace(typed) != ""
+			default:
+				failed = true
+			}
+		}
+	}
+	IncPolicyUpdate(failed)
+}
+
 func getClient() *Client {
 	configureMu.Lock()
 	defer configureMu.Unlock()
