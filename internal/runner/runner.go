@@ -138,8 +138,10 @@ type runner struct {
 	shareDirCreated bool
 	keepContainers  bool
 
-	logger     *log.Logger
-	mountState *mountState
+	logger        *log.Logger
+	mountState    *mountState
+	sessionID     string
+	workspaceHash string
 }
 
 // ExitCodeError propagates the exact exit status produced by the leashed command
@@ -182,6 +184,13 @@ func execute(cmdName string, args []string) error {
 		return fmt.Errorf("a command is required; provide one after '--'")
 	}
 
+	workspacePath, err := workspaceDir()
+	if err != nil {
+		return fmt.Errorf("determine workspace directory: %w", err)
+	}
+	workspaceHash := statsig.HashWorkspacePath(workspacePath)
+	sessionID := statsig.NewSessionID()
+
 	cliFlags := map[string]bool{
 		"policy_flag_provided": opts.policyOverride != "",
 		"listen_flag_provided": opts.listenSet,
@@ -193,16 +202,14 @@ func execute(cmdName string, args []string) error {
 		Mode:              "runner",
 		CLIFlags:          cliFlags,
 		SubcommandPresent: len(opts.command) > 0,
+		SessionID:         sessionID,
+		WorkspaceID:       workspaceHash,
 	})
 	defer statsig.Stop(context.Background())
 
 	callerDir, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("determine working directory: %w", err)
-	}
-
-	if _, err := workspaceDir(); err != nil {
-		return fmt.Errorf("determine workspace directory: %w", err)
 	}
 
 	cfg, configEnv, err := loadConfig(callerDir, opts)
@@ -217,10 +224,12 @@ func execute(cmdName string, args []string) error {
 	}
 
 	r := &runner{
-		opts:    opts,
-		cfg:     cfg,
-		verbose: opts.verbose,
-		logger:  log.New(os.Stderr, "", 0),
+		opts:          opts,
+		cfg:           cfg,
+		verbose:       opts.verbose,
+		logger:        log.New(os.Stderr, "", 0),
+		sessionID:     sessionID,
+		workspaceHash: workspaceHash,
 	}
 
 	if err := r.initMountState(context.Background(), callerDir); err != nil {
@@ -1730,6 +1739,12 @@ func (r *runner) launchTargetContainer(ctx context.Context, stopSignal string) e
 	for _, env := range r.opts.envVars {
 		args = append(args, "-e", env)
 	}
+	if hash := strings.TrimSpace(r.workspaceHash); hash != "" {
+		args = append(args, "-e", fmt.Sprintf("LEASH_WORKSPACE_HASH=%s", hash))
+	}
+	if session := strings.TrimSpace(r.sessionID); session != "" {
+		args = append(args, "-e", fmt.Sprintf("LEASH_SESSION_ID=%s", session))
+	}
 	existingContainers := make(map[string]struct{})
 	existingPairs := make(map[string]struct{})
 	for _, volume := range r.opts.volumes {
@@ -1903,6 +1918,12 @@ func (r *runner) launchLeashContainer(ctx context.Context, cgroupPath string) er
 
 	if r.cfg.extraArgs != "" {
 		args = append(args, "-e", fmt.Sprintf("LEASH_EXTRA_ARGS=%s", r.cfg.extraArgs))
+	}
+	if hash := strings.TrimSpace(r.workspaceHash); hash != "" {
+		args = append(args, "-e", fmt.Sprintf("LEASH_WORKSPACE_HASH=%s", hash))
+	}
+	if session := strings.TrimSpace(r.sessionID); session != "" {
+		args = append(args, "-e", fmt.Sprintf("LEASH_SESSION_ID=%s", session))
 	}
 	for _, env := range r.opts.envVars {
 		args = append(args, "-e", env)

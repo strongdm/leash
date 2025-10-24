@@ -42,6 +42,11 @@ func TestClientStartAndStop(t *testing.T) {
 
 	ctx := context.Background()
 
+	const (
+		sessionID   = "session-abc"
+		workspaceID = "workspace-hash"
+	)
+
 	Start(ctx, StartPayload{
 		Mode: "runner",
 		CLIFlags: map[string]bool{
@@ -49,6 +54,8 @@ func TestClientStartAndStop(t *testing.T) {
 			"listen_flag_provided": false,
 		},
 		SubcommandPresent: true,
+		SessionID:         sessionID,
+		WorkspaceID:       workspaceID,
 	})
 
 	IncPolicyUpdate(false)
@@ -78,12 +85,38 @@ func TestClientStartAndStop(t *testing.T) {
 	if startPayload.Events[0].Metadata["version"] != "1.2.3" {
 		t.Fatalf("unexpected version: %+v", startPayload.Events[0].Metadata)
 	}
+	if startPayload.Events[0].Metadata["workspace_id"] != workspaceID {
+		t.Fatalf("missing workspace_id metadata: %+v", startPayload.Events[0].Metadata)
+	}
+	if startPayload.Events[0].Metadata["session_id"] != sessionID {
+		t.Fatalf("missing session_id metadata: %+v", startPayload.Events[0].Metadata)
+	}
 	flags, ok := startPayload.Events[0].Metadata["cli_flags"].(map[string]any)
 	if !ok {
 		t.Fatalf("cli flags missing or wrong type: %+v", startPayload.Events[0].Metadata)
 	}
 	if _, ok := flags["policy_flag_provided"]; !ok {
 		t.Fatalf("policy flag missing: %+v", flags)
+	}
+	user, ok := startPayload.Events[0].User.(map[string]any)
+	if !ok {
+		t.Fatalf("user missing or wrong type: %+v", startPayload.Events[0])
+	}
+	if user["userID"] != workspaceID {
+		t.Fatalf("unexpected userID: %+v", user)
+	}
+	customIDs, ok := user["customIDs"].(map[string]any)
+	if !ok {
+		t.Fatalf("customIDs missing: %+v", user)
+	}
+	if customIDs["leash_session"] != sessionID {
+		t.Fatalf("unexpected session custom ID: %+v", customIDs)
+	}
+	if startPayload.StatsigMetadata.SessionID != sessionID {
+		t.Fatalf("unexpected metadata sessionID: %+v", startPayload.StatsigMetadata)
+	}
+	if startPayload.StatsigMetadata.WorkspaceID != workspaceID {
+		t.Fatalf("unexpected metadata workspaceID: %+v", startPayload.StatsigMetadata)
 	}
 
 	var stopPayload requestPayload
@@ -99,6 +132,32 @@ func TestClientStartAndStop(t *testing.T) {
 	}
 	if metadata["policy_update_errors_total"].(float64) != 1 {
 		t.Fatalf("policy error total mismatch: %+v", metadata)
+	}
+	if metadata["workspace_id"] != workspaceID {
+		t.Fatalf("missing workspace_id in session event: %+v", metadata)
+	}
+	if metadata["session_id"] != sessionID {
+		t.Fatalf("missing session_id in session event: %+v", metadata)
+	}
+	userStop, ok := stopPayload.Events[0].User.(map[string]any)
+	if !ok {
+		t.Fatalf("session user missing or wrong type: %+v", stopPayload.Events[0])
+	}
+	if userStop["userID"] != workspaceID {
+		t.Fatalf("session userID mismatch: %+v", userStop)
+	}
+	customIDsStop, ok := userStop["customIDs"].(map[string]any)
+	if !ok {
+		t.Fatalf("session customIDs missing: %+v", userStop)
+	}
+	if customIDsStop["leash_session"] != sessionID {
+		t.Fatalf("session custom ID mismatch: %+v", customIDsStop)
+	}
+	if stopPayload.StatsigMetadata.SessionID != sessionID {
+		t.Fatalf("session metadata sessionID mismatch: %+v", stopPayload.StatsigMetadata)
+	}
+	if stopPayload.StatsigMetadata.WorkspaceID != workspaceID {
+		t.Fatalf("session metadata workspaceID mismatch: %+v", stopPayload.StatsigMetadata)
 	}
 }
 

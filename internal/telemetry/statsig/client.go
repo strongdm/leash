@@ -3,6 +3,8 @@ package statsig
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -10,12 +12,15 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -63,6 +68,8 @@ type StartPayload struct {
 	Mode              string
 	CLIFlags          map[string]bool
 	SubcommandPresent bool
+	SessionID         string
+	WorkspaceID       string
 }
 
 // Client is a minimal Statsig event emitter for privacy-preserving telemetry.
@@ -71,14 +78,16 @@ type Client struct {
 
 	httpClient *http.Client
 
-	mu        sync.Mutex
-	version   string
-	started   bool
-	stopped   bool
-	startTime time.Time
-	mode      string
-	cliFlags  map[string]bool
-	hasSubcmd bool
+	mu          sync.Mutex
+	version     string
+	started     bool
+	stopped     bool
+	startTime   time.Time
+	mode        string
+	cliFlags    map[string]bool
+	hasSubcmd   bool
+	sessionID   string
+	workspaceID string
 
 	policyTotal       atomic.Uint64
 	policyErrorsTotal atomic.Uint64
@@ -169,10 +178,15 @@ func (c *Client) start(ctx context.Context, payload StartPayload) {
 	c.cliFlags = cloneBoolMap(payload.CLIFlags)
 	c.hasSubcmd = payload.SubcommandPresent
 	c.startTime = time.Now()
+	c.sessionID = sanitizeSessionID(payload.SessionID)
+	if c.sessionID == "" {
+		c.sessionID = newSessionID()
+	}
+	c.workspaceID = sanitizeWorkspaceID(payload.WorkspaceID)
 	version := c.version
 	c.mu.Unlock()
 
-	event := buildStartEvent(version, c.mode, c.cliFlags, c.hasSubcmd)
+	event := buildStartEvent(version, c.mode, c.cliFlags, c.hasSubcmd, c.workspaceID, c.sessionID)
 	c.enqueueEvent(event)
 }
 
@@ -191,10 +205,12 @@ func (c *Client) stop(ctx context.Context) {
 	start := c.startTime
 	mode := c.mode
 	version := c.version
+	workspaceID := c.workspaceID
+	sessionID := c.sessionID
 	c.mu.Unlock()
 
 	duration := time.Since(start)
-	event := buildSessionEvent(version, mode, duration, c.policyTotal.Load(), c.policyErrorsTotal.Load())
+	event := buildSessionEvent(version, mode, duration, c.policyTotal.Load(), c.policyErrorsTotal.Load(), workspaceID, sessionID)
 	c.enqueueEvent(event)
 }
 
@@ -253,8 +269,10 @@ func (c *Client) sendEvents(ctx context.Context, events []eventPayload) error {
 	payload := requestPayload{
 		Events: events,
 		StatsigMetadata: statsigMetadata{
-			SDKType:    sdkType,
-			SDKVersion: c.version,
+			SDKType:     sdkType,
+			SDKVersion:  c.version,
+			SessionID:   c.sessionID,
+			WorkspaceID: c.workspaceID,
 		},
 	}
 
@@ -343,7 +361,7 @@ func shouldRetry(err error, resp *http.Response) bool {
 	return false
 }
 
-func buildStartEvent(version, mode string, flags map[string]bool, hasSubcommand bool) eventPayload {
+func buildStartEvent(version, mode string, flags map[string]bool, hasSubcommand bool, workspaceID, sessionID string) eventPayload {
 	metadata := map[string]any{
 		"os":      runtime.GOOS,
 		"arch":    runtime.GOARCH,
@@ -355,15 +373,22 @@ func buildStartEvent(version, mode string, flags map[string]bool, hasSubcommand 
 		metadata["cli_flags"] = flags
 	}
 	metadata["subcommand_present"] = hasSubcommand
+	if workspaceID != "" {
+		metadata["workspace_id"] = workspaceID
+	}
+	if sessionID != "" {
+		metadata["session_id"] = sessionID
+	}
 
 	return eventPayload{
 		EventName: "leash.start",
 		Time:      time.Now().UnixMilli(),
+		User:      buildUser(workspaceID, sessionID),
 		Metadata:  metadata,
 	}
 }
 
-func buildSessionEvent(version, mode string, duration time.Duration, policyTotal, policyErrors uint64) eventPayload {
+func buildSessionEvent(version, mode string, duration time.Duration, policyTotal, policyErrors uint64, workspaceID, sessionID string) eventPayload {
 	metadata := map[string]any{
 		"mode":                       sanitizeMode(mode),
 		"version":                    version,
@@ -371,10 +396,17 @@ func buildSessionEvent(version, mode string, duration time.Duration, policyTotal
 		"policy_updates_total":       policyTotal,
 		"policy_update_errors_total": policyErrors,
 	}
+	if workspaceID != "" {
+		metadata["workspace_id"] = workspaceID
+	}
+	if sessionID != "" {
+		metadata["session_id"] = sessionID
+	}
 
 	return eventPayload{
 		EventName: "leash.session",
 		Time:      time.Now().UnixMilli(),
+		User:      buildUser(workspaceID, sessionID),
 		Metadata:  metadata,
 	}
 }
@@ -424,16 +456,17 @@ func cloneBoolMap(input map[string]bool) map[string]bool {
 }
 
 type eventPayload struct {
-	EventName string `json:"eventName"`
-	// User is required by the Statsig API, but we intentionally omit identifiers by keeping it nil.
-	User     any            `json:"user"`
-	Time     int64          `json:"time"`
-	Metadata map[string]any `json:"metadata"`
+	EventName string         `json:"eventName"`
+	User      any            `json:"user"`
+	Time      int64          `json:"time"`
+	Metadata  map[string]any `json:"metadata"`
 }
 
 type statsigMetadata struct {
-	SDKType    string `json:"sdkType"`
-	SDKVersion string `json:"sdkVersion"`
+	SDKType     string `json:"sdkType"`
+	SDKVersion  string `json:"sdkVersion"`
+	SessionID   string `json:"sessionID,omitempty"`
+	WorkspaceID string `json:"workspaceID,omitempty"`
 }
 
 type requestPayload struct {
@@ -476,4 +509,53 @@ func (c *Client) shutdown() {
 	c.shutdownOnce.Do(func() {
 		close(c.events)
 	})
+}
+
+// HashWorkspacePath returns a deterministic hash for the provided workspace path.
+// The value is safe to use as a Statsig user identifier because it never reveals the raw path.
+func HashWorkspacePath(path string) string {
+	clean := strings.TrimSpace(path)
+	if clean == "" {
+		return ""
+	}
+	clean = filepath.Clean(clean)
+	if clean == "." || clean == string(os.PathSeparator) {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(clean))
+	// Truncate to 16 bytes to keep the identifier compact while retaining sufficient entropy.
+	return hex.EncodeToString(sum[:16])
+}
+
+// NewSessionID returns a random session identifier suitable for Statsig custom IDs.
+func NewSessionID() string {
+	return newSessionID()
+}
+
+func newSessionID() string {
+	return uuid.NewString()
+}
+
+func sanitizeWorkspaceID(id string) string {
+	return strings.TrimSpace(id)
+}
+
+func sanitizeSessionID(id string) string {
+	return strings.TrimSpace(id)
+}
+
+func buildUser(workspaceID, sessionID string) any {
+	if workspaceID == "" && sessionID == "" {
+		return nil
+	}
+	user := make(map[string]any, 2)
+	if workspaceID != "" {
+		user["userID"] = workspaceID
+	}
+	if sessionID != "" {
+		user["customIDs"] = map[string]string{
+			"leash_session": sessionID,
+		}
+	}
+	return user
 }
