@@ -1,5 +1,5 @@
 # Build artifacts
-/.docker-dev-*
+/.dev-docker-*
 *.o
 *.tmp
 
