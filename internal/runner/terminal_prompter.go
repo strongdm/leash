@@ -25,7 +25,7 @@ func newTerminalPrompter(in io.Reader, out io.Writer) *terminalPrompter {
 		in:          bufio.NewReader(in),
 		out:         out,
 		color:       supportsColor(out),
-		accentColor: "\033[38;5;45m",
+		accentColor: "\033[38;5;205m",
 	}
 	return p
 }

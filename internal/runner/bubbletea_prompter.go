@@ -207,7 +207,7 @@ func newWizardModel(cmd, hostDir, project, version string, theme wizardTheme, lo
 
 	var colors []string
 	if theme.color {
-		colors = []string{"#58d4ff", "#8fb3ff", "#a46fff"}
+		colors = []string{"#7C3AED", "#C026D3", "#FF1493"}
 	}
 
 	return &wizardModel{
