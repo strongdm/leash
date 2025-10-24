@@ -51,4 +51,4 @@ jobs:
       - name: make test
         env:
           CI: true
-        run: make test-go test-web
+        run: make test-deps test-go test-web

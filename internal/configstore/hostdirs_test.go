@@ -6,9 +6,9 @@ import (
 	"testing"
 )
 
+// This test rewires HOME/CLAUDE_CONFIG_DIR and must remain serial to avoid
+// leaking temporary paths into other tests.
 func TestHostDirsAllCommandsCovered(t *testing.T) {
-	t.Parallel()
-	lockEnv(t)
 	testSetEnv(t, "LEASH_HOME", "")
 	testSetEnv(t, "CLAUDE_CONFIG_DIR", "")
 	home := t.TempDir()
@@ -26,9 +26,9 @@ func TestHostDirsAllCommandsCovered(t *testing.T) {
 	}
 }
 
+// This test modifies HOME while validating error handling, so it cannot run in
+// parallel with other environment-sensitive tests.
 func TestUnsupportedCommandPanics(t *testing.T) {
-	t.Parallel()
-	lockEnv(t)
 	testSetEnv(t, "LEASH_HOME", "")
 	testSetEnv(t, "CLAUDE_CONFIG_DIR", "")
 	setHome(t, t.TempDir())
@@ -38,9 +38,8 @@ func TestUnsupportedCommandPanics(t *testing.T) {
 	}
 }
 
+// This test unsets HOME to exercise error paths and must execute serially.
 func TestHostDirsMissingHomeErrors(t *testing.T) {
-	t.Parallel()
-	lockEnv(t)
 	testSetEnv(t, "LEASH_HOME", "")
 	testSetEnv(t, "CLAUDE_CONFIG_DIR", "")
 	unsetHome(t)
@@ -50,9 +49,8 @@ func TestHostDirsMissingHomeErrors(t *testing.T) {
 	}
 }
 
+// This test sets HOME and CLAUDE_CONFIG_DIR and cannot safely run in parallel.
 func TestClaudeHostDirUsesEnvOverride(t *testing.T) {
-	t.Parallel()
-	lockEnv(t)
 	testSetEnv(t, "LEASH_HOME", "")
 	home := t.TempDir()
 	setHome(t, home)
@@ -69,9 +67,9 @@ func TestClaudeHostDirUsesEnvOverride(t *testing.T) {
 	}
 }
 
+// This test updates HOME and CLAUDE_CONFIG_DIR to resolve tilde expansion; keep
+// it serial to prevent environment leaks.
 func TestClaudeHostDirTildeOverride(t *testing.T) {
-	t.Parallel()
-	lockEnv(t)
 	testSetEnv(t, "LEASH_HOME", "")
 	home := t.TempDir()
 	setHome(t, home)

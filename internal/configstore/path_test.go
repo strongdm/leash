@@ -5,9 +5,9 @@ import (
 	"testing"
 )
 
+// This test sets XDG_CONFIG_HOME and HOME to exercise precedence; keep it
+// serial so other tests do not observe the temporary directories.
 func TestGetConfigPathPrefersXDG(t *testing.T) {
-	t.Parallel()
-	lockEnv(t)
 	testSetEnv(t, "LEASH_HOME", "")
 	base := t.TempDir()
 	testSetEnv(t, "XDG_CONFIG_HOME", base)
@@ -27,9 +27,9 @@ func TestGetConfigPathPrefersXDG(t *testing.T) {
 	}
 }
 
+// This test clears HOME to cover the error path; run it serially to avoid
+// leaking the unset environment to other tests.
 func TestGetConfigPathMissingHomeErrors(t *testing.T) {
-	t.Parallel()
-	lockEnv(t)
 	testSetEnv(t, "LEASH_HOME", "")
 	testSetEnv(t, "XDG_CONFIG_HOME", "")
 	unsetHome(t)
@@ -39,9 +39,9 @@ func TestGetConfigPathMissingHomeErrors(t *testing.T) {
 	}
 }
 
+// This test overrides LEASH_HOME and HOME to verify precedence; keep it serial
+// so parallel tests do not inherit the override.
 func TestGetConfigPathPrefersLeashHome(t *testing.T) {
-	t.Parallel()
-	lockEnv(t)
 	base := filepath.Join(t.TempDir(), "leash-home")
 	testSetEnv(t, "LEASH_HOME", base)
 	testSetEnv(t, "XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "xdg"))

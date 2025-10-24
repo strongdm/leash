@@ -122,6 +122,8 @@ func TestComputeExtraMountsForClaudeIncludesConfigFile(t *testing.T) {
 	}
 }
 
+// This test sets HOME so the tilde resolver sees a predictable directory; keep
+// it serial to avoid leaking temporary paths to parallel tests.
 func TestResolveCustomVolumesGlobal(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("HOME", base)
@@ -199,6 +201,7 @@ func TestResolveCustomVolumesProjectOverride(t *testing.T) {
 	}
 }
 
+// This test rewrites HOME to validate project volume disabling; run it serially.
 func TestResolveCustomVolumesProjectDisable(t *testing.T) {
 	project := filepath.Join(t.TempDir(), "repo")
 	if err := os.MkdirAll(project, 0o755); err != nil {

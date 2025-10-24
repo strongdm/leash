@@ -73,10 +73,8 @@ func TestResolveWorkspaceCandidateRejectsFile(t *testing.T) {
 	}
 }
 
+// This test changes the working directory and clears env; keep it serial.
 func TestWorkspaceDirUsesWorkingDirectory(t *testing.T) {
-	t.Parallel()
-
-	lockEnv(t)
 	clearEnv(t, "LEASH_WORKSPACE")
 
 	tmp := t.TempDir()
@@ -115,10 +113,8 @@ func TestWorkspaceDirUsesWorkingDirectory(t *testing.T) {
 	}
 }
 
+// This test toggles LEASH_WORKSPACE; run serially to avoid leaking overrides.
 func TestWorkspaceDirHonorsEnvOverride(t *testing.T) {
-	t.Parallel()
-
-	lockEnv(t)
 
 	override := t.TempDir()
 	setEnv(t, "LEASH_WORKSPACE", override)
