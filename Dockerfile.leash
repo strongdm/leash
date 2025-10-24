@@ -144,3 +144,40 @@ LABEL org.opencontainers.image.version="v${VERSION}" \
       org.opencontainers.image.ref.name="${CHANNEL}"
 COPY --from=build /out/leash /usr/local/bin/leash
 COPY --from=build /out/leash-entry /usr/local/bin/leash-entry
+
+# Lightweight variant targets for integration tests ---------------------------
+
+FROM alpine:3.20 AS leash-test-alpine
+RUN apk add --no-cache \
+    bash \
+    ca-certificates \
+    coreutils \
+    curl \
+    grep \
+    iputils \
+    wget
+
+FROM debian:bookworm AS leash-test-debian
+ARG DEBIAN_FRONTEND
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bash \
+    ca-certificates \
+    coreutils \
+    curl \
+    grep \
+    iputils-ping \
+    procps \
+    wget && \
+    rm -rf /var/lib/apt/lists/*
+
+FROM rockylinux:9 AS leash-test-rocky
+RUN dnf install -y --setopt=install_weak_deps=False \
+    bash \
+    ca-certificates \
+    coreutils \
+    curl \
+    grep \
+    iputils \
+    procps-ng \
+    wget && \
+    dnf clean all
