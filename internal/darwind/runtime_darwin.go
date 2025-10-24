@@ -90,7 +90,13 @@ func Main(args []string) error {
 		return err
 	}
 
-	statsig.Start(context.Background(), statsig.StartPayload{Mode: "darwin"})
+	sessionID := strings.TrimSpace(os.Getenv("LEASH_SESSION_ID"))
+	workspaceHash := strings.TrimSpace(os.Getenv("LEASH_WORKSPACE_HASH"))
+	statsig.Start(context.Background(), statsig.StartPayload{
+		Mode:        "darwin",
+		SessionID:   sessionID,
+		WorkspaceID: workspaceHash,
+	})
 	defer statsig.Stop(context.Background())
 
 	if err := preFlight(cfg); err != nil {
