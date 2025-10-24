@@ -589,8 +589,8 @@ func (rt *runtimeState) configureNetwork() error {
 		return nil
 	}
 
-	fmt.Fprintf(os.Stderr, "leash: applying iptables rules\n")
-	if err := applyIptablesRules(rt.cfg.ProxyPort); err != nil {
+	fmt.Fprintf(os.Stderr, "leash: applying network interception rules\n")
+	if err := applyNetworkRules(rt.cfg.ProxyPort); err != nil {
 		return err
 	}
 
@@ -661,6 +661,29 @@ func skipEnforcement() bool {
 // Tests override this to simulate hosts where iptables is absent without mutating the real filesystem.
 var iptablesBinaryName = "iptables"
 
+// ip6tablesBinaryName allows optional IPv6 interception if available.
+var ip6tablesBinaryName = "ip6tables"
+
+// nftables binary name
+var nftBinaryName = "nft"
+
+// applyNetworkRules attempts nftables first (v4+v6) then falls back to iptables/ip6tables.
+func applyNetworkRules(port string) error {
+	if port == "" {
+		port = "18000"
+	}
+	// Try nftables first if available
+	if _, err := findNft(); err == nil {
+		if err := applyNftablesRules(port); err == nil {
+			return nil
+		} else {
+			log.Printf("Warning: nftables apply failed; falling back to iptables: %v", err)
+		}
+	}
+	// Fallback: iptables + ip6tables (best-effort)
+	return applyIptablesRules(port)
+}
+
 func applyIptablesRules(port string) error {
 	if port == "" {
 		port = "18000"
@@ -679,7 +702,24 @@ func applyIptablesRules(port string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Env = append(os.Environ(), "PROXY_MARK="+proxyMark)
-	return cmd.Run()
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+
+	// Best-effort IPv6 support: run ip6tables rules if ip6tables exists
+	if p, _ := findIp6tables(); p != "" {
+		v6 := exec.Command(shell, "-s", port)
+		v6.Stdin = strings.NewReader(assets.ApplyIp6tablesScript)
+		v6.Stdout = os.Stdout
+		v6.Stderr = os.Stderr
+		v6.Env = append(os.Environ(), "PROXY_MARK="+proxyMark)
+		if err := v6.Run(); err != nil {
+			log.Printf("Warning: failed to apply ip6tables rules: %v", err)
+		}
+	} else {
+		log.Printf("ip6tables not found; skipping IPv6 interception")
+	}
+	return nil
 }
 
 // findIptables locates the iptables binary by searching PATH first,
@@ -700,6 +740,61 @@ func findIptables() (string, error) {
 		}
 	}
 	return "", fmt.Errorf("iptables not found (checked PATH, /usr/sbin, /sbin)")
+}
+
+// applyNftablesRules runs the embedded nftables script to configure v4+v6.
+func applyNftablesRules(port string) error {
+	if port == "" {
+		port = "18000"
+	}
+	if _, err := findNft(); err != nil {
+		return err
+	}
+	shell := "/bin/sh"
+	if _, err := exec.LookPath(shell); err != nil {
+		return fmt.Errorf("shell not found: %w", err)
+	}
+	cmd := exec.Command(shell, "-s", port)
+	cmd.Stdin = strings.NewReader(assets.ApplyNftablesScript)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Env = append(os.Environ(), "PROXY_MARK="+proxyMark)
+	return cmd.Run()
+}
+
+// findNft locates the nft binary by searching PATH first, then common sbin directories.
+func findNft() (string, error) {
+	if p, err := exec.LookPath(nftBinaryName); err == nil {
+		return p, nil
+	}
+	candidates := []string{
+		filepath.Join("/usr/sbin", nftBinaryName),
+		filepath.Join("/sbin", nftBinaryName),
+	}
+	for _, c := range candidates {
+		if fi, err := os.Stat(c); err == nil && !fi.IsDir() && fi.Mode()&0o111 != 0 {
+			return c, nil
+		}
+	}
+	return "", fmt.Errorf("nft not found (checked PATH, /usr/sbin, /sbin)")
+}
+
+// findIp6tables locates the ip6tables binary. Returns empty string if not found.
+func findIp6tables() (string, error) {
+	// PATH first
+	if p, err := exec.LookPath(ip6tablesBinaryName); err == nil {
+		return p, nil
+	}
+	candidates := []string{
+		filepath.Join("/usr/sbin", ip6tablesBinaryName),
+		filepath.Join("/sbin", ip6tablesBinaryName),
+	}
+	for _, c := range candidates {
+		if fi, err := os.Stat(c); err == nil && !fi.IsDir() && fi.Mode()&0o111 != 0 {
+			return c, nil
+		}
+	}
+	return "", fmt.Errorf("ip6tables not found (checked PATH, /usr/sbin, /sbin)")
 }
 
 func formatCedarErrorForCLI(detail *cedarutil.ErrorDetail) string {

@@ -56,6 +56,15 @@ type sockaddrIn struct {
 	zero   [8]uint8
 }
 
+// sockaddr_in6 structure for IPv6 SO_ORIGINAL_DST (IP6T_SO_ORIGINAL_DST)
+type sockaddrIn6 struct {
+	family   uint16
+	port     uint16
+	flowinfo uint32
+	addr     [16]byte
+	scope_id uint32
+}
+
 // createMarkedDialer creates a dialer that marks outgoing connections to avoid proxy loops
 func createMarkedDialer() *net.Dialer {
 	return &net.Dialer{
@@ -84,9 +93,15 @@ func (p *MITMProxy) createMarkedTLSConnection(targetHost string) (*tls.Conn, err
 		return nil, err
 	}
 
-	tlsConn := tls.Client(conn, &tls.Config{
-		ServerName: strings.Split(targetHost, ":")[0],
-	})
+	// Extract hostname for SNI; handle IPv6 [addr]:port correctly
+	serverName := targetHost
+	if h, _, err := net.SplitHostPort(targetHost); err == nil {
+		serverName = h
+	}
+	// Trim brackets for IPv6 literals
+	serverName = strings.Trim(serverName, "[]")
+
+	tlsConn := tls.Client(conn, &tls.Config{ServerName: serverName})
 
 	return tlsConn, nil
 }
@@ -143,31 +158,52 @@ func getOriginalDest(conn net.Conn) (string, error) {
 
 	fd := int(file.Fd())
 
-	// SO_ORIGINAL_DST = 80, SOL_IP = 0
+	// SO_ORIGINAL_DST (v4) and IP6T_SO_ORIGINAL_DST (v6) share value 80
 	const SO_ORIGINAL_DST = 80
-	const SOL_IP = 0
-	var sockaddr sockaddrIn
-	sockaddrSize := uint32(unsafe.Sizeof(sockaddr))
 
-	_, _, errno := syscall.Syscall6(
-		syscall.SYS_GETSOCKOPT,
-		uintptr(fd),
-		SOL_IP,
-		SO_ORIGINAL_DST,
-		uintptr(unsafe.Pointer(&sockaddr)),
-		uintptr(unsafe.Pointer(&sockaddrSize)),
-		0,
-	)
-
-	if errno != 0 {
-		return "", fmt.Errorf("SO_ORIGINAL_DST failed: %v", errno)
+	// Try IPv4 first
+	{
+		const SOL_IP = 0
+		var sin sockaddrIn
+		size := uint32(unsafe.Sizeof(sin))
+		_, _, errno := syscall.Syscall6(
+			syscall.SYS_GETSOCKOPT,
+			uintptr(fd),
+			SOL_IP,
+			SO_ORIGINAL_DST,
+			uintptr(unsafe.Pointer(&sin)),
+			uintptr(unsafe.Pointer(&size)),
+			0,
+		)
+		if errno == 0 {
+			ip := fmt.Sprintf("%d.%d.%d.%d", sin.addr[0], sin.addr[1], sin.addr[2], sin.addr[3])
+			port := (uint16(sin.port&0xFF) << 8) | (uint16(sin.port&0xFF00) >> 8)
+			return fmt.Sprintf("%s:%d", ip, port), nil
+		}
 	}
 
-	// Convert to string
-	ip := fmt.Sprintf("%d.%d.%d.%d", sockaddr.addr[0], sockaddr.addr[1], sockaddr.addr[2], sockaddr.addr[3])
-	port := (uint16(sockaddr.port&0xFF) << 8) | (uint16(sockaddr.port&0xFF00) >> 8) // convert from network byte order
-
-	return fmt.Sprintf("%s:%d", ip, port), nil
+	// Fallback to IPv6
+	{
+		lvl := uintptr(syscall.IPPROTO_IPV6) // SOL_IPV6
+		var sin6 sockaddrIn6
+		size := uint32(unsafe.Sizeof(sin6))
+		_, _, errno := syscall.Syscall6(
+			syscall.SYS_GETSOCKOPT,
+			uintptr(fd),
+			lvl,
+			SO_ORIGINAL_DST,
+			uintptr(unsafe.Pointer(&sin6)),
+			uintptr(unsafe.Pointer(&size)),
+			0,
+		)
+		if errno == 0 {
+			ip := net.IP(sin6.addr[:]).String()
+			port := (uint16(sin6.port&0xFF) << 8) | (uint16(sin6.port&0xFF00) >> 8)
+			// Bracket IPv6 literal for host:port format
+			return fmt.Sprintf("[%s]:%d", ip, port), nil
+		}
+		return "", fmt.Errorf("SO_ORIGINAL_DST (v4/v6) failed: %v", errno)
+	}
 }
 
 func (p *MITMProxy) Run() error {
@@ -474,8 +510,13 @@ func (p *MITMProxy) handleTransparentHTTPS(clientConn net.Conn, originalDest str
 			// Use the SNI (Server Name Indication) to get the correct hostname
 			actualHostname = hello.ServerName
 			if actualHostname == "" {
-				// Fallback to IP if no SNI
-				actualHostname = strings.Split(originalDest, ":")[0]
+				// Fallback to IP if no SNI; parse host:port safely (IPv6 aware)
+				host, _, err := net.SplitHostPort(originalDest)
+				if err != nil {
+					actualHostname = originalDest
+				} else {
+					actualHostname = strings.Trim(host, "[]")
+				}
 			}
 
 			return p.getCertificate(actualHostname)
