@@ -266,11 +266,9 @@ func (t *CedarToLeashTranspiler) extractOperations(actionConstraint ActionConstr
 // canonicalizeActionToOperation maps various action identifier forms to canonical operations
 func canonicalizeActionToOperation(action string) []string {
 	out := []string{}
-	switch {
-	case strings.HasPrefix(action, "Action::"):
+	if strings.HasPrefix(action, "Action::") {
 		id := strings.Trim(strings.TrimPrefix(action, "Action::"), `"`)
 		idLower := strings.ToLower(id)
-		// Canonical PascalCase actions
 		switch idLower {
 		case strings.ToLower("FileOpen"):
 			out = append(out, "open")
@@ -286,32 +284,6 @@ func canonicalizeActionToOperation(action string) []string {
 		case strings.ToLower("McpCall"): /* handled separately as MCP */
 		default:
 			// Unsupported action id
-		}
-	default:
-		if strings.HasPrefix(action, "Fs::") {
-			name := strings.Trim(strings.TrimPrefix(action, "Fs::"), `"`)
-			switch name {
-			case "ReadFile":
-				out = append(out, "read")
-			case "WriteFile":
-				out = append(out, "write")
-			case "ListDir":
-				out = append(out, "read")
-			case "CreateFileUnder":
-				out = append(out, "write")
-			}
-		} else if strings.HasPrefix(action, "Proc::") {
-			name := strings.Trim(strings.TrimPrefix(action, "Proc::"), `"`)
-			if strings.EqualFold(name, "Exec") {
-				out = append(out, "exec")
-			}
-		} else if strings.HasPrefix(action, "Net::") {
-			name := strings.Trim(strings.TrimPrefix(action, "Net::"), `"`)
-			if strings.EqualFold(name, "Connect") {
-				out = append(out, "connect")
-			}
-		} else if strings.HasPrefix(action, "Http::") {
-			// Http.Request not supported; Http.ApplyRewrite handled in extractHTTPRewrites
 		}
 	}
 	return out
@@ -516,12 +488,6 @@ func (t *CedarToLeashTranspiler) extractHTTPRewrites(policy CedarPolicy) []proxy
 		if strings.HasPrefix(a, "Action::") {
 			id := strings.Trim(strings.TrimPrefix(a, "Action::"), `"`)
 			if strings.EqualFold(id, "HttpRewrite") {
-				isRewrite = true
-			}
-		}
-		if strings.HasPrefix(a, "Http::") {
-			name := strings.Trim(strings.TrimPrefix(a, "Http::"), `"`)
-			if strings.EqualFold(name, "ApplyRewrite") {
 				isRewrite = true
 			}
 		}

@@ -452,9 +452,9 @@ func TestPoliciesPostRejectsInternalConflict(t *testing.T) {
 	api.register(mux)
 
 	cedar := `
-permit (principal, action == Net::"Connect", resource == Net::Hostname::"api.openai.com");
+permit (principal, action == Action::"NetworkConnect", resource == Host::"api.openai.com");
 
-forbid (principal, action == Net::"Connect", resource == Net::Hostname::"api.openai.com");
+forbid (principal, action == Action::"NetworkConnect", resource == Host::"api.openai.com");
 `
 	req := httptest.NewRequest(http.MethodPost, "/api/policies", bytes.NewBufferString(cedar))
 	w := httptest.NewRecorder()
@@ -610,8 +610,8 @@ func TestPoliciesPatchRejectsConflict(t *testing.T) {
 	api := newPolicyAPI(mgr, policyPath, nil, nil, nil)
 	api.register(mux)
 
-	// Seed a permit connect for api.openai.com
-	seed := `permit (principal, action == Net::"Connect", resource == Net::Hostname::"api.openai.com");`
+	// Seed a permit connect for api.openai.com (canonical Action form)
+	seed := `permit (principal, action == Action::"NetworkConnect", resource == Host::"api.openai.com");`
 	reqSeed := httptest.NewRequest(http.MethodPost, "/api/policies", bytes.NewBufferString(seed))
 	wSeed := httptest.NewRecorder()
 	mux.ServeHTTP(wSeed, reqSeed)
@@ -653,9 +653,9 @@ func TestPersistPoliciesRejectsConflict(t *testing.T) {
 	api.register(mux)
 
 	cedar := `
-permit (principal, action == Net::"Connect", resource == Net::Hostname::"www.google.com");
+permit (principal, action == Action::"NetworkConnect", resource == Host::"www.google.com");
 
-forbid (principal, action == Net::"Connect", resource == Net::Hostname::"www.google.com");
+forbid (principal, action == Action::"NetworkConnect", resource == Host::"www.google.com");
 
 permit (principal, action in [Action::"FileOpen", Action::"FileOpenReadOnly", Action::"FileOpenReadWrite"], resource)
 when { resource in [ Dir::"/" ] };
