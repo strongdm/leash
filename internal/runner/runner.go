@@ -96,6 +96,8 @@ type options struct {
 	listen         string
 	listenSet      bool
 	openUI         bool
+	publishes      []publishSpec
+	publishAll     bool
 }
 
 type config struct {
@@ -282,15 +284,17 @@ command inside the target container. If no command is provided, the target image
 entrypoint is left running.
 
 Flags:
-  -I, --no-interactive          Skip the interactive TTY; run the command non-interactively.
-  -p, -policy, --policy <path>  Policy file to mount into the leash runtime.
-  -l, --listen <addr>           Control UI bind address (e.g. :18080, 127.0.0.1:18080; blank disables UI).
-  -o, --open                    Open Control UI in default browser once ready.
-  -v, --volume <src:dst[:ro]>   Bind mount to pass through to the target container (repeatable).
-  -e, --env <key[=value]>       Set environment variables inside the leash containers (repeatable).
-  --image <name[:tag]>          Override the target container image (defaults to %s).
-  --leash-image <name[:tag]>    Override the leash manager image (defaults to %s).
-  -V, --verbose                 Enable verbose logging.
+  -I, --no-interactive            Skip the interactive TTY; run the command non-interactively.
+  --policy <path>                 Policy file to mount into the leash runtime.
+  -l, --listen <addr>             Control UI bind address (e.g. :18080, 127.0.0.1:18080; setting this to blank disables the UI).
+  -o, --open                      Open Control UI in default browser once ready.
+  -v, --volume <src:dst[:ro]>     Bind mount to pass through to the target container (repeatable).
+  -e, --env <key[=value]>         Set environment variables inside the leash containers (repeatable).
+  -p, --publish <[ip:]host:container[/proto]>   Publish a container port to the host (repeatable). Examples: -p 3000, -p 8000:3000, -p 127.0.0.1:3000:3000, -p :3000, -p 3000/udp
+  -P, --publish-all               Publish all EXPOSEd ports (host same as container when free, auto-bump on conflicts).
+  --image <name[:tag]>            Override the target container image (defaults to %s).
+  --leash-image <name[:tag]>      Override the leash manager image (defaults to %s).
+  -V, --verbose                   Enable verbose logging.
 
 Environment variables:
   LEASH_TARGET_IMAGE           Default target image (overridden by --image).
@@ -340,12 +344,25 @@ func parseArgs(args []string) (options, error) {
 				return opts, err
 			}
 			i++
-		case "-p", "-policy", "--policy":
+		case "-policy", "--policy":
 			if i+1 >= len(args) {
 				return opts, fmt.Errorf("missing argument for %s", arg)
 			}
 			opts.policyOverride = args[i+1]
 			i++
+		case "-p", "--publish", "--port-forward":
+			if i+1 >= len(args) {
+				return opts, fmt.Errorf("missing argument for %s", arg)
+			}
+			spec := strings.TrimSpace(args[i+1])
+			ps, err := parsePublishSpec(spec)
+			if err != nil {
+				return opts, fmt.Errorf("invalid publish spec %q: %w", spec, err)
+			}
+			opts.publishes = append(opts.publishes, ps)
+			i++
+		case "-P", "--publish-all":
+			opts.publishAll = true
 		case "-v":
 			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") && strings.Contains(args[i+1], ":") {
 				opts.volumes = append(opts.volumes, args[i+1])
@@ -399,6 +416,27 @@ func parseArgs(args []string) (options, error) {
 			case strings.HasPrefix(arg, "--listen="):
 				opts.listen = strings.TrimPrefix(arg, "--listen=")
 				opts.listenSet = true
+			case strings.HasPrefix(arg, "--publish="):
+				spec := strings.TrimPrefix(arg, "--publish=")
+				ps, err := parsePublishSpec(spec)
+				if err != nil {
+					return opts, fmt.Errorf("invalid publish spec %q: %w", spec, err)
+				}
+				opts.publishes = append(opts.publishes, ps)
+			case strings.HasPrefix(arg, "--port-forward="):
+				spec := strings.TrimPrefix(arg, "--port-forward=")
+				ps, err := parsePublishSpec(spec)
+				if err != nil {
+					return opts, fmt.Errorf("invalid publish spec %q: %w", spec, err)
+				}
+				opts.publishes = append(opts.publishes, ps)
+			case strings.HasPrefix(arg, "-p="):
+				spec := strings.TrimPrefix(arg, "-p=")
+				ps, err := parsePublishSpec(spec)
+				if err != nil {
+					return opts, fmt.Errorf("invalid publish spec %q: %w", spec, err)
+				}
+				opts.publishes = append(opts.publishes, ps)
 			case strings.HasPrefix(arg, "-l="):
 				opts.listen = strings.TrimPrefix(arg, "-l=")
 				opts.listenSet = true
@@ -1049,6 +1087,13 @@ func (r *runner) startContainers(ctx context.Context) error {
 		return err
 	}
 
+	if err := r.expandPublishAll(ctx); err != nil {
+		return err
+	}
+	if err := r.allocatePublishPorts(ctx); err != nil {
+		return err
+	}
+
 	if err := r.ensureLocalImage(ctx, r.cfg.targetImage); err != nil {
 		return err
 	}
@@ -1476,6 +1521,181 @@ func (r *runner) ensurePortFree(ctx context.Context, port string) error {
 	return nil
 }
 
+// --- Port publishing helpers ---
+
+type publishSpec struct {
+	HostIP        string
+	HostPort      string
+	ContainerPort string
+	Proto         string // "tcp" (default) or "udp"
+	AutoHostPort  bool   // if true, choose HostPort based on availability
+}
+
+func parsePublishSpec(raw string) (publishSpec, error) {
+	ps := publishSpec{Proto: "tcp"}
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return ps, fmt.Errorf("empty publish spec")
+	}
+	// Protocol suffix
+	if idx := strings.LastIndexByte(s, '/'); idx != -1 {
+		proto := strings.ToLower(strings.TrimSpace(s[idx+1:]))
+		s = strings.TrimSpace(s[:idx])
+		if proto == "tcp" || proto == "udp" {
+			ps.Proto = proto
+		} else {
+			return ps, fmt.Errorf("unknown protocol %q", proto)
+		}
+	}
+	// Split by ':'
+	parts := strings.Split(s, ":")
+	switch len(parts) {
+	case 1:
+		// "3000" → container 3000, auto host port
+		ps.ContainerPort = strings.TrimSpace(parts[0])
+		if ps.ContainerPort == "" {
+			return ps, fmt.Errorf("container port required")
+		}
+		ps.AutoHostPort = true
+	case 2:
+		// "HOST:CONTAINER" or ":CONTAINER"
+		ps.HostPort = strings.TrimSpace(parts[0])
+		ps.ContainerPort = strings.TrimSpace(parts[1])
+		if ps.ContainerPort == "" {
+			return ps, fmt.Errorf("container port required")
+		}
+		if ps.HostPort == "" {
+			ps.AutoHostPort = true
+		}
+	case 3:
+		ps.HostIP = strings.TrimSpace(parts[0])
+		ps.HostPort = strings.TrimSpace(parts[1])
+		ps.ContainerPort = strings.TrimSpace(parts[2])
+		if ps.ContainerPort == "" {
+			return ps, fmt.Errorf("container port required")
+		}
+		if ps.HostPort == "" {
+			ps.AutoHostPort = true
+		}
+	default:
+		return ps, fmt.Errorf("invalid publish format")
+	}
+	if err := validatePort(ps.ContainerPort); err != nil {
+		return ps, err
+	}
+	if ps.HostPort != "" {
+		if err := validatePort(ps.HostPort); err != nil {
+			return ps, err
+		}
+	}
+	if ps.HostIP == "" {
+		ps.HostIP = "127.0.0.1"
+	}
+	return ps, nil
+}
+
+func validatePort(port string) error {
+	value, err := strconv.Atoi(port)
+	if err != nil {
+		return fmt.Errorf("invalid port %q", port)
+	}
+	if value <= 0 || value > 65535 {
+		return fmt.Errorf("invalid port %q", port)
+	}
+	return nil
+}
+
+func (ps publishSpec) toDockerArg() string {
+	proto := ps.Proto
+	if proto == "" {
+		proto = "tcp"
+	}
+	return fmt.Sprintf("%s:%s:%s/%s", ps.HostIP, ps.HostPort, ps.ContainerPort, proto)
+}
+
+func (r *runner) allocatePublishPorts(ctx context.Context) error {
+	for i := range r.opts.publishes {
+		ps := &r.opts.publishes[i]
+		// If host port is unspecified or auto, try container port first, then bump
+		if ps.AutoHostPort || strings.TrimSpace(ps.HostPort) == "" {
+			candidate := ps.ContainerPort
+			var busyPorts []string
+			for attempts := 0; attempts < 1000; attempts++ {
+				if err := r.ensurePortFree(ctx, candidate); err != nil {
+					var inUse *portInUseError
+					if errors.As(err, &inUse) {
+						busyPorts = append(busyPorts, candidate)
+						next, err := incrementPort(candidate)
+						if err != nil {
+							return err
+						}
+						candidate = next
+						continue
+					}
+					return err
+				}
+				ps.HostPort = candidate
+				ps.AutoHostPort = false
+				break
+			}
+			if ps.HostPort == "" {
+				return fmt.Errorf("failed to locate an available port for container:%s", ps.ContainerPort)
+			}
+			if len(busyPorts) > 0 && ps.HostPort != "" && r.logger != nil {
+				r.logger.Printf("%d ports were in-use; using %s for container:%s.", len(busyPorts), ps.HostPort, ps.ContainerPort)
+			}
+		} else {
+			if err := r.ensurePortFree(ctx, ps.HostPort); err != nil {
+				var inUse *portInUseError
+				if errors.As(err, &inUse) {
+					return fmt.Errorf("host port %s is already in use; choose a different host port or omit it to auto-pick", inUse.port)
+				}
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (r *runner) expandPublishAll(ctx context.Context) error {
+	if !r.opts.publishAll {
+		return nil
+	}
+	out, err := commandOutput(ctx, "docker", "inspect", "--format", "{{json .Config.ExposedPorts}}", r.cfg.targetImage)
+	if err != nil {
+		return fmt.Errorf("inspect exposed ports: %w", err)
+	}
+	raw := strings.TrimSpace(out)
+	if raw == "" || raw == "null" || raw == "{}" {
+		return nil
+	}
+	var exposed map[string]any
+	if err := json.Unmarshal([]byte(raw), &exposed); err != nil {
+		return fmt.Errorf("parse exposed ports: %w", err)
+	}
+	for key := range exposed {
+		// key is like "3000/tcp" or "53/udp"
+		proto := "tcp"
+		port := key
+		if idx := strings.LastIndexByte(key, '/'); idx != -1 {
+			port = key[:idx]
+			p := strings.ToLower(strings.TrimSpace(key[idx+1:]))
+			if p == "udp" {
+				proto = "udp"
+			}
+		}
+		ps := publishSpec{
+			HostIP:        "127.0.0.1",
+			HostPort:      "",
+			ContainerPort: strings.TrimSpace(port),
+			Proto:         proto,
+			AutoHostPort:  true,
+		}
+		r.opts.publishes = append(r.opts.publishes, ps)
+	}
+	return nil
+}
+
 func (r *runner) launchTargetContainer(ctx context.Context, stopSignal string) error {
 	arch, err := r.detectImageArch(ctx)
 	if err != nil {
@@ -1493,6 +1713,10 @@ func (r *runner) launchTargetContainer(ctx context.Context, stopSignal string) e
 		if publish := r.cfg.listenCfg.DockerPublish(); publish != "" {
 			args = append(args, "-p", publish)
 		}
+	}
+	// Append requested port publishes
+	for _, ps := range r.opts.publishes {
+		args = append(args, "-p", ps.toDockerArg())
 	}
 	args = append(args,
 		"-v", fmt.Sprintf("%s:/leash", r.cfg.shareDir),
@@ -1580,7 +1804,22 @@ func (r *runner) launchTargetContainer(ctx context.Context, stopSignal string) e
 		args = append(args, "-v", volume)
 	}
 	args = append(args, r.cfg.targetImage)
-	return runCommand(ctx, "docker", args...)
+	if err := runCommand(ctx, "docker", args...); err != nil {
+		return err
+	}
+	// Print final port mappings
+	for _, ps := range r.opts.publishes {
+		if ps.Proto == "udp" {
+			fmt.Printf("Forwarded %s:%s -> container:%s (udp)\n", ps.HostIP, ps.HostPort, ps.ContainerPort)
+		} else {
+			host := ps.HostIP
+			if host == "" {
+				host = "127.0.0.1"
+			}
+			fmt.Printf("Forwarded http://%s:%s -> container:%s (tcp)\n", host, ps.HostPort, ps.ContainerPort)
+		}
+	}
+	return nil
 }
 
 func (r *runner) detectImageArch(ctx context.Context) (string, error) {
