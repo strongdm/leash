@@ -239,7 +239,9 @@ build-ui: precommit ## Build the Control UI. Uses local pnpm if available, other
 	@set -e; \
 	if command -v pnpm >/dev/null 2>&1; then \
 	  echo 'building UI locally with pnpm (via `go generate`)'; \
-	  go generate ./internal/ui; \
+	  cd controlui/web; \
+	  corepack enable; \
+	  pnpm install --frozen-lockfile && node scripts/build-if-changed.mjs --out ../../internal/ui/dist; \
 	else \
 	  echo 'pnpm not found; falling back to Docker'; \
       $(MAKE) docker-ui; \
@@ -312,8 +314,9 @@ test-e2e: test-deps ## Run integration tests via test_e2e.sh
 	@echo 'running e2e tests...'
 	@VERBOSE=$(VERBOSE) ./test_e2e.sh
 
-.PHONY: clean
-clean: ## Remove build artifacts
+.PHONY: clean-go
+clean-go:
+	@go clean -cache
 	@# Go cache can get in a broken state, so.
 	@go clean -cache
 	@# Build artifacts.
@@ -325,13 +328,18 @@ clean: ## Remove build artifacts
 	@rm -f internal/entrypoint/bundled_linux_*_gen.go
 	@#     -> Intermediate eBPF files.
 	@if [ "$(shell uname -s)" = 'Linux' ]; then rm -f internal/lsm/*_bpf*.go internal/lsm/*_bpf*.o; fi
-	@#     -> UI artifacts.
-	@rm -rf internal/ui/dist/*
+
+.PHONY: clean-ui
+clean-ui:
+	@rm -rf controlui/web/.next/ controlui/web/out internal/ui/dist
+
+.PHONY: clean-docker
+clean-docker:
 	@#     -> Cached Docker base images.
 	@if command -v $(DOCKER) >/dev/null 2>&1; then \
 	  $(DOCKER) image inspect leash/build-base:latest >/dev/null 2>&1 && $(DOCKER) image rm -f leash/build-base:latest >/dev/null 2>&1 || true; \
 	  $(DOCKER) image inspect leash/runtime-base:latest >/dev/null 2>&1 && $(DOCKER) image rm -f leash/runtime-base:latest >/dev/null 2>&1 || true; \
 	fi
-	# Misc follows.
-	@rm -rf tmp/log tmp/leash
-	#@reset
+
+.PHONY: clean
+clean: clean-go clean-ui clean-docker ## Remove build artifacts
