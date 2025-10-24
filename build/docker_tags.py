@@ -34,6 +34,7 @@ class TagError(RuntimeError):
 class TagConfig:
     image: str
     version: str
+    extra_tags: tuple[str, ...] = ()
 
 
 @dataclass
@@ -144,6 +145,9 @@ def compute_tags(cfg: TagConfig, state: GitState) -> dict[str, str]:
     if include_default:
         unique_append(tags, default_tag)
 
+    for extra in cfg.extra_tags:
+        unique_append(tags, extra)
+
     tag_args = " ".join(f"-t {tag}" for tag in tags)
     tag_list = " ".join(tags)
 
@@ -163,8 +167,15 @@ def parse_args(argv: list[str]) -> TagConfig:
     parser = argparse.ArgumentParser(description="Generate Docker tagging metadata.")
     parser.add_argument("--image", required=True, help="Base image reference, e.g. ghcr.io/org/app:latest")
     parser.add_argument("--version", default="", help="Version label to attach as a tag (e.g. v1.2.3 or dev-abc123)")
+    parser.add_argument(
+        "--extra-tag",
+        action="append",
+        default=[],
+        help="Additional tag reference to include verbatim (repeatable).",
+    )
     args = parser.parse_args(argv)
-    return TagConfig(image=args.image, version=args.version)
+    extra_tags = tuple(tag.strip() for tag in args.extra_tag if tag and tag.strip())
+    return TagConfig(image=args.image, version=args.version, extra_tags=extra_tags)
 
 
 def main(argv: list[str]) -> int:

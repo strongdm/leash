@@ -1,6 +1,8 @@
 package runner
 
 import (
+	"bytes"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -248,5 +250,148 @@ func TestLoadConfigRespectsTargetImageEnv(t *testing.T) {
 
 	if got, want := cfg.targetImage, "example.com/custom:latest"; got != want {
 		t.Fatalf("target image mismatch: got %q want %q", got, want)
+	}
+}
+
+func TestLoadConfigUsesDevDockerFiles(t *testing.T) {
+	t.Parallel()
+
+	lockEnv(t)
+	clearEnv(t, "LEASH_WORK_DIR")
+	clearEnv(t, "LEASH_LOG_DIR")
+	clearEnv(t, "LEASH_CFG_DIR")
+	clearEnv(t, "LEASH_WORKSPACE_DIR")
+	setEnv(t, "XDG_CONFIG_HOME", t.TempDir())
+	clearEnv(t, "LEASH_TARGET_IMAGE")
+	clearEnv(t, "TARGET_IMAGE")
+	clearEnv(t, "LEASH_IMAGE")
+	clearEnv(t, "TARGET_CONTAINER")
+	clearEnv(t, "LEASH_CONTAINER")
+
+	caller := t.TempDir()
+	coderID := "sha256:test-coder"
+	leashID := "sha256:test-leash"
+
+	if err := os.WriteFile(filepath.Join(caller, devDockerCoderFile), []byte(coderID+"\n"), 0o644); err != nil {
+		t.Fatalf("write coder dev file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(caller, devDockerLeashFile), []byte(leashID+"\n"), 0o644); err != nil {
+		t.Fatalf("write leash dev file: %v", err)
+	}
+
+	cfg, _, err := loadConfig(caller, options{})
+	if err != nil {
+		t.Fatalf("loadConfig returned error: %v", err)
+	}
+
+	if cfg.targetImage != coderID {
+		t.Fatalf("expected target image %q, got %q", coderID, cfg.targetImage)
+	}
+	if cfg.targetImageSource != imageSourceDevFile {
+		t.Fatalf("expected target image source %q, got %q", imageSourceDevFile, cfg.targetImageSource)
+	}
+	if want := filepath.Join(caller, devDockerCoderFile); filepath.Clean(cfg.targetImageDevFile) != filepath.Clean(want) {
+		t.Fatalf("expected target image dev file %q, got %q", want, cfg.targetImageDevFile)
+	}
+
+	if cfg.leashImage != leashID {
+		t.Fatalf("expected leash image %q, got %q", leashID, cfg.leashImage)
+	}
+	if cfg.leashImageSource != imageSourceDevFile {
+		t.Fatalf("expected leash image source %q, got %q", imageSourceDevFile, cfg.leashImageSource)
+	}
+	if want := filepath.Join(caller, devDockerLeashFile); filepath.Clean(cfg.leashImageDevFile) != filepath.Clean(want) {
+		t.Fatalf("expected leash image dev file %q, got %q", want, cfg.leashImageDevFile)
+	}
+}
+
+func TestLoadConfigDevDockerFilesIgnoredWhenEnvOverrides(t *testing.T) {
+	t.Parallel()
+
+	lockEnv(t)
+	clearEnv(t, "LEASH_WORK_DIR")
+	clearEnv(t, "LEASH_LOG_DIR")
+	clearEnv(t, "LEASH_CFG_DIR")
+	clearEnv(t, "LEASH_WORKSPACE_DIR")
+	setEnv(t, "XDG_CONFIG_HOME", t.TempDir())
+	clearEnv(t, "LEASH_TARGET_IMAGE")
+	clearEnv(t, "TARGET_IMAGE")
+	clearEnv(t, "LEASH_IMAGE")
+	clearEnv(t, "TARGET_CONTAINER")
+	clearEnv(t, "LEASH_CONTAINER")
+
+	caller := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(caller, devDockerCoderFile), []byte("sha256:dev-coder\n"), 0o644); err != nil {
+		t.Fatalf("write coder dev file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(caller, devDockerLeashFile), []byte("sha256:dev-leash\n"), 0o644); err != nil {
+		t.Fatalf("write leash dev file: %v", err)
+	}
+
+	setEnv(t, "TARGET_IMAGE", "example.com/env-target:latest")
+	setEnv(t, "LEASH_IMAGE", "example.com/env-leash:latest")
+
+	cfg, _, err := loadConfig(caller, options{})
+	if err != nil {
+		t.Fatalf("loadConfig returned error: %v", err)
+	}
+
+	if cfg.targetImage != "example.com/env-target:latest" {
+		t.Fatalf("expected target image to use env override, got %q", cfg.targetImage)
+	}
+	if cfg.targetImageSource != imageSourceEnv {
+		t.Fatalf("expected target image source %q, got %q", imageSourceEnv, cfg.targetImageSource)
+	}
+	if cfg.targetImageDevFile != "" {
+		t.Fatalf("expected no target dev file usage, got %q", cfg.targetImageDevFile)
+	}
+
+	if cfg.leashImage != "example.com/env-leash:latest" {
+		t.Fatalf("expected leash image to use env override, got %q", cfg.leashImage)
+	}
+	if cfg.leashImageSource != imageSourceEnv {
+		t.Fatalf("expected leash image source %q, got %q", imageSourceEnv, cfg.leashImageSource)
+	}
+	if cfg.leashImageDevFile != "" {
+		t.Fatalf("expected no leash dev file usage, got %q", cfg.leashImageDevFile)
+	}
+}
+
+func TestLogDevImageSelectionsEmitsMessage(t *testing.T) {
+	t.Parallel()
+
+	caller := t.TempDir()
+	devPath := filepath.Join(caller, devDockerCoderFile)
+	cfg := config{
+		callerDir:          caller,
+		targetImage:        "sha256:log-coder",
+		targetImageSource:  imageSourceDevFile,
+		targetImageDevFile: devPath,
+		leashImage:         "sha256:default-leash",
+		leashImageSource:   imageSourceDefault,
+	}
+
+	var buf bytes.Buffer
+	r := &runner{
+		cfg:     cfg,
+		logger:  log.New(&buf, "", 0),
+		verbose: false,
+	}
+
+	r.logDevImageSelections()
+
+	output := buf.String()
+	if !strings.Contains(output, "using target image override") {
+		t.Fatalf("expected log output to mention target override, got %q", output)
+	}
+	if !strings.Contains(output, "sha256:log-coder") {
+		t.Fatalf("expected log output to include image id, got %q", output)
+	}
+	if !strings.Contains(output, devDockerCoderFile) {
+		t.Fatalf("expected log output to reference dev file, got %q", output)
+	}
+	if strings.Contains(output, "leash image override") {
+		t.Fatalf("expected only target override to be logged, got %q", output)
 	}
 }

@@ -44,6 +44,17 @@ const (
 	envGeminiAPIKey    = "GEMINI_API_KEY"
 )
 
+const (
+	devDockerLeashFile = ".dev-docker-leash"
+	devDockerCoderFile = ".dev-docker-coder"
+
+	imageSourceDefault = "default"
+	imageSourceConfig  = "config"
+	imageSourceEnv     = "env"
+	imageSourceFlag    = "flag"
+	imageSourceDevFile = "dev-file"
+)
+
 var baseEnvVarsByCommand = map[string][]string{
 	"claude": {envAnthropicAPIKey},
 	"codex":  {envOpenAIAPIKey},
@@ -109,6 +120,10 @@ type config struct {
 	policyPath          string
 	policyOverride      bool
 	bootstrapTimeout    time.Duration
+	targetImageSource   string
+	leashImageSource    string
+	targetImageDevFile  string
+	leashImageDevFile   string
 	listenCfg           listen.Config
 	listenExplicit      bool
 }
@@ -769,7 +784,9 @@ func loadConfig(callerDir string, opts options) (config, map[string]configstore.
 		workDir:             workDir,
 		workDirIsTemp:       workDirIsTemp,
 		targetImage:         defaultTargetImage,
-		leashImage:          envOrDefault("LEASH_IMAGE", defaultLeashImage),
+		leashImage:          defaultLeashImage,
+		targetImageSource:   imageSourceDefault,
+		leashImageSource:    imageSourceDefault,
 		targetContainer:     targetBase,
 		leashContainer:      leashBase,
 		targetContainerBase: targetBase,
@@ -777,6 +794,12 @@ func loadConfig(callerDir string, opts options) (config, map[string]configstore.
 		proxyPort:           envOrDefault("LEASH_PROXY_PORT", defaultProxyPort),
 		extraArgs:           os.Getenv("LEASH_EXTRA_ARGS"),
 		cgroupPathOverride:  strings.TrimSpace(os.Getenv("LEASH_CGROUP_PATH")),
+	}
+
+	if envLeash := strings.TrimSpace(os.Getenv("LEASH_IMAGE")); envLeash != "" {
+		cfg.leashImage = envLeash
+		cfg.leashImageSource = imageSourceEnv
+		cfg.leashImageDevFile = ""
 	}
 
 	cfg.logDir = envOrDefault("LEASH_LOG_DIR", filepath.Join(workDir, "log"))
@@ -823,6 +846,8 @@ func loadConfig(callerDir string, opts options) (config, map[string]configstore.
 
 	if targetFromConfig != "" {
 		cfg.targetImage = targetFromConfig
+		cfg.targetImageSource = imageSourceConfig
+		cfg.targetImageDevFile = ""
 	}
 
 	envTarget := strings.TrimSpace(os.Getenv("LEASH_TARGET_IMAGE"))
@@ -831,14 +856,44 @@ func loadConfig(callerDir string, opts options) (config, map[string]configstore.
 	}
 	if envTarget != "" {
 		cfg.targetImage = envTarget
+		cfg.targetImageSource = imageSourceEnv
+		cfg.targetImageDevFile = ""
 	}
 
-	if opts.targetImage != "" {
-		cfg.targetImage = opts.targetImage
+	if trimmed := strings.TrimSpace(opts.targetImage); trimmed != "" {
+		cfg.targetImage = trimmed
+		cfg.targetImageSource = imageSourceFlag
+		cfg.targetImageDevFile = ""
 	}
 
-	if opts.leashImage != "" {
-		cfg.leashImage = opts.leashImage
+	if trimmed := strings.TrimSpace(opts.leashImage); trimmed != "" {
+		cfg.leashImage = trimmed
+		cfg.leashImageSource = imageSourceFlag
+		cfg.leashImageDevFile = ""
+	}
+
+	if cfg.targetImageSource == imageSourceDefault {
+		targetID, targetPath, err := readDevImageID(callerDir, devDockerCoderFile)
+		if err != nil {
+			return config{}, nil, err
+		}
+		if targetID != "" {
+			cfg.targetImage = targetID
+			cfg.targetImageSource = imageSourceDevFile
+			cfg.targetImageDevFile = targetPath
+		}
+	}
+
+	if cfg.leashImageSource == imageSourceDefault {
+		leashID, leashPath, err := readDevImageID(callerDir, devDockerLeashFile)
+		if err != nil {
+			return config{}, nil, err
+		}
+		if leashID != "" {
+			cfg.leashImage = leashID
+			cfg.leashImageSource = imageSourceDevFile
+			cfg.leashImageDevFile = leashPath
+		}
 	}
 
 	if opts.policyOverride != "" {
@@ -884,6 +939,22 @@ func loadConfig(callerDir string, opts options) (config, map[string]configstore.
 	cfg.listenExplicit = listenExplicit
 	cleanupTemp = false
 	return cfg, resolvedEnv, nil
+}
+
+func readDevImageID(baseDir, filename string) (string, string, error) {
+	path := filepath.Join(baseDir, filename)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", path, nil
+		}
+		return "", path, fmt.Errorf("read dev image id file %s: %w", path, err)
+	}
+	id := strings.TrimSpace(string(data))
+	if id == "" {
+		return "", path, fmt.Errorf("dev image id file %s is empty", path)
+	}
+	return id, path, nil
 }
 
 func envOrDefault(key, fallback string) string {
@@ -944,7 +1015,28 @@ func (r *runner) debugf(format string, args ...interface{}) {
 	}
 }
 
+func (r *runner) logDevImageSelections() {
+	r.logDevImage("target", r.cfg.targetImageSource, r.cfg.targetImageDevFile, r.cfg.targetImage)
+	r.logDevImage("leash", r.cfg.leashImageSource, r.cfg.leashImageDevFile, r.cfg.leashImage)
+}
+
+func (r *runner) logDevImage(kind, source, sourcePath, image string) {
+	if source != imageSourceDevFile {
+		return
+	}
+	displayPath := sourcePath
+	if rel, err := filepath.Rel(r.cfg.callerDir, sourcePath); err == nil && rel != "" {
+		displayPath = rel
+	}
+	if displayPath == "" {
+		displayPath = "<dev override>"
+	}
+	r.logger.Printf("using %s image override from %s: %s", kind, displayPath, image)
+}
+
 func (r *runner) startContainers(ctx context.Context) error {
+	r.logDevImageSelections()
+
 	if err := r.assignContainerNames(ctx); err != nil {
 		return err
 	}
