@@ -1740,43 +1740,35 @@ func buildCedarFromActionRequest(req addPolicyFromActionRequest) (string, error)
 
 	switch actType {
 	case "file/open":
-		entity, kind := buildFileEntityFromName(name)
-		action := `Fs::"ReadFile"`
-		if kind == "dir" {
-			action = `Fs::"ListDir"`
-		}
-		return buildHeadEqualityPolicy(effect, action, entity), nil
+		entity, _ := buildFileEntityFromName(name)
+		return buildHeadEqualityPolicy(effect, `Action::"FileOpen"`, entity), nil
 	case "file/write":
-		entity, kind := buildFileEntityFromName(name)
-		action := `Fs::"WriteFile"`
-		if kind == "dir" {
-			action = `Fs::"CreateFileUnder"`
-		}
-		return buildHeadEqualityPolicy(effect, action, entity), nil
+		entity, _ := buildFileEntityFromName(name)
+		return buildHeadEqualityPolicy(effect, `Action::"FileOpenReadWrite"`, entity), nil
 	case "proc/exec":
 		path := firstToken(name)
 		if path == "" {
 			return "", errors.New("unable to derive command path from action name")
 		}
-		resource := fmt.Sprintf(`Fs::File::"%s"`, escapeCedarString(path))
-		return buildHeadEqualityPolicy(effect, `Proc::"Exec"`, resource), nil
+		resource := fmt.Sprintf(`File::"%s"`, escapeCedarString(path))
+		return buildHeadEqualityPolicy(effect, `Action::"ProcessExec"`, resource), nil
 	case "net/connect":
 		host := parseHostFromName(name)
 		if host == "" {
 			host = "example.com"
 		}
-		resource := fmt.Sprintf(`Net::Hostname::"%s"`, escapeCedarString(host))
-		return buildHeadEqualityPolicy(effect, `Net::"Connect"`, resource), nil
+		resource := fmt.Sprintf(`Host::"%s"`, escapeCedarString(host))
+		return buildHeadEqualityPolicy(effect, `Action::"NetworkConnect"`, resource), nil
 	case "fs/list":
 		entity, _ := buildFileEntityFromName(name)
-		return buildHeadEqualityPolicy(effect, `Fs::"ListDir"`, entity), nil
+		return buildHeadEqualityPolicy(effect, `Action::"FileOpen"`, entity), nil
 	case "dns/resolve":
 		host := parseHostFromName(name)
 		if host == "" {
 			host = "example.com"
 		}
-		resource := fmt.Sprintf(`Net::Hostname::"%s"`, escapeCedarString(host))
-		return buildHeadEqualityPolicy(effect, `Net::"Connect"`, resource), nil
+		resource := fmt.Sprintf(`Host::"%s"`, escapeCedarString(host))
+		return buildHeadEqualityPolicy(effect, `Action::"NetworkConnect"`, resource), nil
 		// MCP events: Option A — Action::"McpCall" with MCP::Tool and MCP::Server
 	case "mcp/deny", "mcp/allow", "mcp/list", "mcp/call", "mcp/resources", "mcp/prompts", "mcp/init", "mcp/notify":
 		// Prefer structured fields when provided
@@ -1813,9 +1805,9 @@ func buildFileEntityFromName(name string) (string, string) {
 	if strings.HasSuffix(path, "/") {
 		kind = "dir"
 	}
-	entityType := `Fs::File`
+	entityType := `File`
 	if kind == "dir" {
-		entityType = `Fs::Directory`
+		entityType = `Dir`
 	}
 	return fmt.Sprintf(`%s::"%s"`, entityType, escapeCedarString(path)), kind
 }

@@ -61,8 +61,8 @@ func TestLint_HeadHostnameIsSupported(t *testing.T) {
 	cedar := `
 permit (
   principal,
-  action == Net::"Connect",
-  resource == Net::Hostname::"api.example.com"
+  action == Action::"NetworkConnect",
+  resource == Host::"api.example.com"
 );`
 	rep, err := LintFromString(cedar)
 	if err != nil {

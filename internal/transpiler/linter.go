@@ -70,8 +70,7 @@ func lintPolicySet(ps *CedarPolicySet) []LintIssue {
 			})
 		}
 		for _, a := range rawActions {
-			switch {
-			case strings.HasPrefix(a, "Action::"):
+			if strings.HasPrefix(a, "Action::") {
 				id := strings.Trim(strings.TrimPrefix(a, "Action::"), `"`)
 				switch {
 				case strings.EqualFold(id, "FileOpen"), strings.EqualFold(id, "FileOpenReadOnly"), strings.EqualFold(id, "FileOpenReadWrite"), strings.EqualFold(id, "ProcessExec"), strings.EqualFold(id, "NetworkConnect"), strings.EqualFold(id, "HttpRewrite"), strings.EqualFold(id, "McpCall"):
@@ -79,44 +78,10 @@ func lintPolicySet(ps *CedarPolicySet) []LintIssue {
 				default:
 					issues = append(issues, LintIssue{PolicyID: p.ID, Severity: LintError, Code: "unsupported_action_id", Message: fmt.Sprintf("Action %q is not supported.", id), Suggestion: "Use FileOpen, FileOpenReadOnly, FileOpenReadWrite, ProcessExec, NetworkConnect, HttpRewrite, or McpCall."})
 				}
-			case strings.HasPrefix(a, "Fs::") || strings.HasPrefix(a, "Proc::") || strings.HasPrefix(a, "Net::") || strings.HasPrefix(a, "Http::") || strings.HasPrefix(a, "Tooling::") || strings.HasPrefix(a, "Control::"):
-				ns, name := splitNS(a)
-				switch ns {
-				case "Fs":
-					switch name {
-					case "ReadFile", "WriteFile", "ListDir":
-					case "CreateFileUnder":
-						issues = append(issues, LintIssue{PolicyID: p.ID, Severity: LintWarning, Code: "approximate_create", Message: "CreateFileUnder compiles to write; IR cannot guarantee create-only semantics."})
-					case "CreateDirUnder", "Delete":
-						issues = append(issues, LintIssue{PolicyID: p.ID, Severity: LintError, Code: "unsupported_operation", Message: "Directory create/delete not enforceable in v1."})
-					default:
-						issues = append(issues, LintIssue{PolicyID: p.ID, Severity: LintError, Code: "unsupported_action", Message: fmt.Sprintf("Fs action %q not supported.", name)})
-					}
-				case "Proc":
-					if name != "Exec" {
-						issues = append(issues, LintIssue{PolicyID: p.ID, Severity: LintError, Code: "unsupported_action", Message: fmt.Sprintf("Proc action %q not supported.", name)})
-					}
-				case "Net":
-					if name != "Connect" {
-						issues = append(issues, LintIssue{PolicyID: p.ID, Severity: LintError, Code: "unsupported_action", Message: fmt.Sprintf("Net action %q not supported.", name)})
-					}
-				case "Http":
-					if name == "Request" {
-						issues = append(issues, LintIssue{PolicyID: p.ID, Severity: LintError, Code: "unsupported_http_request", Message: "HTTP method/path authorization not enforced in v1."})
-					}
-				case "Tooling":
-					if name == "Invoke" && p.Effect == Permit {
-						issues = append(issues, LintIssue{PolicyID: p.ID, Severity: LintWarning, Code: "mcp_allow_noop", Message: "Allow on Tooling.Invoke is informational in v1 (deny rules are enforceable)."})
-					}
-				case "MCP":
-					// MCP namespace is authoring sugar; enforcement support depends on action id
-					// No direct MCP::* action names today
-				case "Control":
-					issues = append(issues, LintIssue{PolicyID: p.ID, Severity: LintError, Code: "control_plane_only", Message: "Control.* actions are not data-plane policy; reserved for API auth."})
-				}
-			default:
-				issues = append(issues, LintIssue{PolicyID: p.ID, Severity: LintError, Code: "unknown_action", Message: fmt.Sprintf("Unrecognized action %q.", a)})
+				continue
 			}
+			// Anything else in the action head is non-canonical and rejected
+			issues = append(issues, LintIssue{PolicyID: p.ID, Severity: LintError, Code: "unsupported_action_syntax", Message: fmt.Sprintf("Non-canonical action head %q; only Action::\"…\" is supported.", a), Suggestion: "Use Action::\"FileOpen\"|\"FileOpenReadOnly\"|\"FileOpenReadWrite\"|\"ProcessExec\"|\"NetworkConnect\"|\"HttpRewrite\"|\"McpCall\"."})
 		}
 
 		// 3) Resources and basic type matching
