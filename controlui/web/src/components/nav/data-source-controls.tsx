@@ -38,7 +38,12 @@ export default function DataSourceControls() {
           <div className="absolute inset-0 size-16 bg-cyan-400 blur-xl opacity-50 animate-pulse" />
         </div>
         <div>
-          <h1 className="text-6xl font-bold bg-gradient-to-r from-cyan-400 via-blue-400 to-purple-400 bg-clip-text text-transparent">
+          <h1
+            className="text-6xl font-bold text-transparent bg-clip-text"
+            style={{
+              backgroundImage: "linear-gradient(90deg, #845EEE 0%, #A04CF0 50%, #C951E7 100%)",
+            }}
+          >
             leash{" "}
             <span className="text-xl">
               by{" "}

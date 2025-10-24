@@ -264,12 +264,12 @@ _leash_prompt_color() {
     ;;
   rgb)
     case $key in
-    label_l) _leash_prompt_make_seq '38;2;88;212;255' ;;
-    label_e) _leash_prompt_make_seq '38;2;108;173;255' ;;
-    label_a) _leash_prompt_make_seq '38;2;138;134;255' ;;
-    label_s) _leash_prompt_make_seq '38;2;168;115;255' ;;
-    label_h) _leash_prompt_make_seq '38;2;198;96;255' ;;
-    accent) _leash_prompt_make_seq '38;2;228;77;255' ;;
+    label_l) _leash_prompt_make_seq '38;2;129;97;246' ;;
+    label_e) _leash_prompt_make_seq '38;2;164;99;247' ;;
+    label_a) _leash_prompt_make_seq '38;2;200;102;247' ;;
+    label_s) _leash_prompt_make_seq '38;2;237;106;248' ;;
+    label_h) _leash_prompt_make_seq '38;2;239;141;249' ;;
+    accent) _leash_prompt_make_seq '38;2;176;79;233' ;;
     project) _leash_prompt_make_seq '38;2;230;236;250' ;;
     dir) _leash_prompt_make_seq '38;2;147;161;184' ;;
     symbol_ok) _leash_prompt_make_seq '38;2;120;235;173' ;;
@@ -280,12 +280,12 @@ _leash_prompt_color() {
     ;;
   ansi8)
     case $key in
-    label_l) _leash_prompt_make_seq '38;5;45' ;;
-    label_e) _leash_prompt_make_seq '38;5;39' ;;
-    label_a) _leash_prompt_make_seq '38;5;63' ;;
-    label_s) _leash_prompt_make_seq '38;5;99' ;;
-    label_h) _leash_prompt_make_seq '38;5;135' ;;
-    accent) _leash_prompt_make_seq '38;5;171' ;;
+    label_l) _leash_prompt_make_seq '38;5;135' ;;
+    label_e) _leash_prompt_make_seq '38;5;171' ;;
+    label_a) _leash_prompt_make_seq '38;5;207' ;;
+    label_s) _leash_prompt_make_seq '38;5;213' ;;
+    label_h) _leash_prompt_make_seq '38;5;219' ;;
+    accent) _leash_prompt_make_seq '38;5;205' ;;
     project) _leash_prompt_make_seq '38;5;250' ;;
     dir) _leash_prompt_make_seq '38;5;246' ;;
     symbol_ok) _leash_prompt_make_seq '38;5;48' ;;
