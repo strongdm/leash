@@ -12,14 +12,24 @@ import (
 	"time"
 )
 
+var testMu sync.Mutex
+
 func TestClientStartAndStop(t *testing.T) {
+	t.Parallel()
+	testMu.Lock()
+	defer testMu.Unlock()
+
 	resetForTest()
 	Configure("1.2.3")
 
 	var reqMu sync.Mutex
 	var bodies [][]byte
+	var wg sync.WaitGroup
+	wg.Add(2)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer wg.Done()
+
 		reqMu.Lock()
 		defer reqMu.Unlock()
 
@@ -45,6 +55,8 @@ func TestClientStartAndStop(t *testing.T) {
 	IncPolicyUpdate(true)
 
 	Stop(ctx)
+
+	waitForRequests(t, &wg, 5*time.Second)
 
 	reqMu.Lock()
 	defer reqMu.Unlock()
@@ -91,6 +103,10 @@ func TestClientStartAndStop(t *testing.T) {
 }
 
 func TestClientDisabled(t *testing.T) {
+	t.Parallel()
+	testMu.Lock()
+	defer testMu.Unlock()
+
 	resetForTest()
 	if err := os.Setenv("LEASH_DISABLE_TELEMETRY", "1"); err != nil {
 		t.Fatalf("set env: %v", err)
@@ -125,6 +141,22 @@ func TestClientDisabled(t *testing.T) {
 	}
 }
 
+func waitForRequests(t *testing.T, wg *sync.WaitGroup, timeout time.Duration) {
+	t.Helper()
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(timeout):
+		t.Fatalf("timed out waiting for telemetry requests")
+	}
+}
+
 func readBody(t *testing.T, r *http.Request) []byte {
 	t.Helper()
 	body, err := io.ReadAll(r.Body)
@@ -138,6 +170,10 @@ func readBody(t *testing.T, r *http.Request) []byte {
 func resetForTest() {
 	configureMu.Lock()
 	defer configureMu.Unlock()
+
+	if globalClient != nil {
+		globalClient.shutdown()
+	}
 
 	configuredVer.Store("dev")
 	globalClient = nil

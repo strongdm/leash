@@ -26,6 +26,8 @@ const (
 	maxAttempts      = 2
 	baseBackoff      = 500 * time.Millisecond
 	backoffJitterCap = 500 * time.Millisecond
+	maxRetryBackoff  = 30 * time.Second
+	eventQueueSize   = 20
 )
 
 var (
@@ -80,6 +82,10 @@ type Client struct {
 
 	policyTotal       atomic.Uint64
 	policyErrorsTotal atomic.Uint64
+
+	sendOnce     sync.Once
+	shutdownOnce sync.Once
+	events       chan eventPayload
 }
 
 // Start begins telemetry for the provided payload. Subsequent calls are ignored.
@@ -134,6 +140,7 @@ func newClient(version string) *Client {
 		disabled:   disabled,
 		version:    sanitizeVersion(version),
 		httpClient: &http.Client{Timeout: httpTimeout},
+		events:     make(chan eventPayload, eventQueueSize),
 	}
 	return c
 }
@@ -149,6 +156,7 @@ func (c *Client) start(ctx context.Context, payload StartPayload) {
 	if c.disabled {
 		return
 	}
+	_ = ctx
 
 	c.mu.Lock()
 	if c.started {
@@ -165,13 +173,14 @@ func (c *Client) start(ctx context.Context, payload StartPayload) {
 	c.mu.Unlock()
 
 	event := buildStartEvent(version, c.mode, c.cliFlags, c.hasSubcmd)
-	_ = c.sendEvents(ctx, []eventPayload{event})
+	c.enqueueEvent(event)
 }
 
 func (c *Client) stop(ctx context.Context) {
 	if c.disabled {
 		return
 	}
+	_ = ctx
 
 	c.mu.Lock()
 	if !c.started || c.stopped {
@@ -186,7 +195,44 @@ func (c *Client) stop(ctx context.Context) {
 
 	duration := time.Since(start)
 	event := buildSessionEvent(version, mode, duration, c.policyTotal.Load(), c.policyErrorsTotal.Load())
-	_ = c.sendEvents(ctx, []eventPayload{event})
+	c.enqueueEvent(event)
+}
+
+func (c *Client) enqueueEvent(event eventPayload) {
+	if c.disabled {
+		return
+	}
+
+	c.startSender()
+
+	select {
+	case c.events <- event:
+	default:
+	}
+}
+
+func (c *Client) startSender() {
+	c.sendOnce.Do(func() {
+		go c.sender()
+	})
+}
+
+func (c *Client) sender() {
+	for event := range c.events {
+		c.deliverWithRetry(event)
+	}
+}
+
+func (c *Client) deliverWithRetry(event eventPayload) {
+	attempt := 0
+	for {
+		if err := c.sendEvents(context.Background(), []eventPayload{event}); err == nil {
+			return
+		}
+
+		attempt++
+		time.Sleep(retryBackoff(attempt))
+	}
 }
 
 func (c *Client) incPolicyUpdate(failed bool) {
@@ -402,4 +448,31 @@ func randN(limit int64) int64 {
 	}
 	next := randSource.Add(1)
 	return int64(next % uint64(limit))
+}
+
+func retryBackoff(attempt int) time.Duration {
+	if attempt < 1 {
+		attempt = 1
+	}
+
+	delay := baseBackoff
+	for i := 1; i < attempt; i++ {
+		delay *= 2
+		if delay >= maxRetryBackoff {
+			delay = maxRetryBackoff
+			break
+		}
+	}
+
+	delay += time.Duration(randN(int64(backoffJitterCap)))
+	if delay > maxRetryBackoff {
+		return maxRetryBackoff
+	}
+	return delay
+}
+
+func (c *Client) shutdown() {
+	c.shutdownOnce.Do(func() {
+		close(c.events)
+	})
 }
