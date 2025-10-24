@@ -3,16 +3,12 @@
 ARG GO_VERSION=1.25.3
 ARG DEBIAN_FRONTEND=noninteractive
 ARG UI_SOURCE=ui-build
+ARG BASE_BUILD_IMAGE=leash/build-base:latest
+ARG BASE_RUNTIME_IMAGE=leash/runtime-base:latest
 
-FROM golang:${GO_VERSION}-bookworm AS build
-ARG UI_SOURCE
-ARG TARGETARCH
+FROM golang:${GO_VERSION}-bookworm AS build-base
 ARG DEBIAN_FRONTEND
-ARG COMMIT=dev
-ARG BUILD_DATE=unknown
-ARG VERSION=dev
-ARG CHANNEL=main
-ARG GIT_REMOTE_URL=unknown
+ARG TARGETARCH
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
@@ -35,6 +31,21 @@ RUN set -eux; \
     esac; \
     rm -rf /var/lib/apt/lists/*
 RUN npm install -g pnpm
+
+ENV GOPATH=/go \
+    PATH=/usr/local/go/bin:/go/bin:$PATH \
+    PNPM_STORE_DIR=/pnpm/store \
+    CI=1
+
+FROM ${BASE_BUILD_IMAGE} AS build
+ARG UI_SOURCE
+ARG TARGETARCH
+ARG DEBIAN_FRONTEND
+ARG COMMIT=dev
+ARG BUILD_DATE=unknown
+ARG VERSION=dev
+ARG CHANNEL=main
+ARG GIT_REMOTE_URL=unknown
 
 ENV GOPATH=/go \
     PATH=/usr/local/go/bin:/go/bin:$PATH \
@@ -106,7 +117,7 @@ ENV LEASH_LOG_DIR=/log \
 
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/leash", "--daemon"]
 
-FROM runtime-base AS final
+FROM ${BASE_RUNTIME_IMAGE} AS final
 ARG VERSION=dev
 ARG COMMIT=dev
 ARG BUILD_DATE=unknown
@@ -120,7 +131,7 @@ LABEL org.opencontainers.image.version="v${VERSION}" \
 COPY --from=build /out/leash /usr/local/bin/leash
 COPY --from=build /out/leash-entry /usr/local/bin/leash-entry
 
-FROM runtime-base AS final-prebuilt
+FROM ${BASE_RUNTIME_IMAGE} AS final-prebuilt
 ARG VERSION=dev
 ARG COMMIT=dev
 ARG BUILD_DATE=unknown

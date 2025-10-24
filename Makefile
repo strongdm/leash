@@ -95,8 +95,30 @@ build-release: build ## Build release artifacts and retag docker images
 	  if [ -z "$$CODER_REPO" ] || [ "$$CODER_REPO" = "$$CODER_DEFAULT" ]; then CODER_REPO="$$CODER_DEFAULT"; fi; \
 	  $(DOCKER) tag "$$CODER_REPO:$(VERSION_TAG)" "$$CODER_REPO:latest"
 
+.PHONY: docker-base
+docker-base: precommit ## Build cached Docker base images if missing
+	@set -euo pipefail; \
+	  if ! $(DOCKER) image inspect leash/build-base:latest >/dev/null 2>&1; then \
+	    echo 'building leash/build-base:latest'; \
+	    $(DOCKER) buildx build --load \
+	      --target build-base \
+	      -f Dockerfile.leash \
+	      -t leash/build-base:latest .; \
+	  else \
+	    echo 'leash/build-base:latest already present; skipping'; \
+	  fi; \
+	  if ! $(DOCKER) image inspect leash/runtime-base:latest >/dev/null 2>&1; then \
+	    echo 'building leash/runtime-base:latest'; \
+	    $(DOCKER) buildx build --load \
+	      --target runtime-base \
+	      -f Dockerfile.leash \
+	      -t leash/runtime-base:latest .; \
+	  else \
+	    echo 'leash/runtime-base:latest already present; skipping'; \
+	  fi
+
 .PHONY: docker-leash
-docker-leash: precommit docker-ui lsm-generate-docker ## Build Leash Docker image with channel tags
+docker-leash: precommit docker-base build-ui lsm-generate-docker ## Build Leash Docker image with channel tags
 	@echo 'building leash image with channel tags'
 	@set -euo pipefail; \
 	  IMAGE="$(LEASH_IMAGE)"; \
@@ -128,7 +150,7 @@ docker-leash: precommit docker-ui lsm-generate-docker ## Build Leash Docker imag
 
 .PHONY: docker-leash-prebuilt
 # Build runtime image using prebuilt UI assets in internal/ui/dist (skips Node stage)
-docker-leash-prebuilt: precommit ## Build Docker image using prebuilt UI assets (part of release pipeline)
+docker-leash-prebuilt: precommit docker-base ## Build Docker image using prebuilt UI assets (part of release pipeline)
 	@echo 'building leash image (prebuilt UI) with channel tags'
 	@set -euo pipefail; \
 	  IMAGE="$(LEASH_IMAGE)"; \
@@ -223,13 +245,18 @@ build-ui: precommit ## Build the Control UI. Uses local pnpm if available, other
       $(MAKE) docker-ui; \
 	fi
 
+.PHOME: generate-entrypoint-if-missing
+generate-entrypoint-if-missing: ## Generate entrypoint artifacts only if not already present
+	@set -e; \
+	if ! [ -f internal/entrypoint/bundled_linux_amd64_gen.go ] || ! [ -f internal/entrypoint/bundled_linux_arm64_gen.go ]; then \
+		go generate ./internal/entrypoint/...; \
+	fi
+
 .PHONY: build
 build: precommit ## Build the leash binary
 	@mkdir -p bin
 	@set -e; \
-	if ! [ -f internal/entrypoint/bundled_linux_amd64_gen.go ] || ! [ -f internal/entrypoint/bundled_linux_arm64_gen.go ]; then \
-		go generate ./internal/entrypoint/...; \
-	fi; \
+	$(MAKE) generate-entrypoint-if-missing; \
 	BASE=$$(git rev-parse --short=7 HEAD 2>/dev/null || true); \
 	if [ -z "$$BASE" ]; then BASE=dev; fi; \
 	DIRTY=''; \
@@ -249,11 +276,6 @@ build: precommit ## Build the leash binary
 test: test-unit test-e2e test-web ## Run entire test suite
 	@echo 'all tests completed'
 
-.PHONY: test-e2e
-test-e2e: precommit ## Run integration tests via test_e2e.sh
-	@echo 'running e2e tests...'
-	@VERBOSE=$(VERBOSE) ./test_e2e.sh
-
 ifeq ($(filter 1 true True TRUE yes Yes YES on On ON,$(VERBOSE)),)
 GO_TEST_FLAGS :=
 else
@@ -263,8 +285,6 @@ endif
 .PHONY: test-unit test-go
 test-unit test-go: precommit ## Run Go unit tests (after UI build + LSM-generate steps)
 	@echo 'running go tests...'
-	@$(MAKE) build-ui >/dev/null
-	@$(MAKE) lsm-generate >/dev/null
 	@go test $(GO_TEST_FLAGS) ./...
 
 # Runs JS/TS tests in Control UI if a test script exists; otherwise skips gracefully.
@@ -281,11 +301,22 @@ test-web: ## Run web frontend tests
 	  echo 'no web test script found; skipping'; \
 	fi
 
+.PHONY: test-deps
+test-deps:
+	@$(MAKE) build-ui >/dev/null
+	@$(MAKE) generate-entrypoint-if-missing >/dev/null
+	@$(MAKE) lsm-generate >/dev/null
+
+.PHONY: test-e2e
+test-e2e: test-deps ## Run integration tests via test_e2e.sh
+	@echo 'running e2e tests...'
+	@VERBOSE=$(VERBOSE) ./test_e2e.sh
+
 .PHONY: clean
 clean: ## Remove build artifacts
-	# Go cache can get in a broken state, so.
+	@# Go cache can get in a broken state, so.
 	@go clean -cache
-	# Build artifacts.
+	@# Build artifacts.
 	@rm -rf bin/*
 	@rm -f .dev-docker-*
 	@# Remove go:generate'd resources:
@@ -296,6 +327,11 @@ clean: ## Remove build artifacts
 	@if [ "$(shell uname -s)" = 'Linux' ]; then rm -f internal/lsm/*_bpf*.go internal/lsm/*_bpf*.o; fi
 	@#     -> UI artifacts.
 	@rm -rf internal/ui/dist/*
+	@#     -> Cached Docker base images.
+	@if command -v $(DOCKER) >/dev/null 2>&1; then \
+	  $(DOCKER) image inspect leash/build-base:latest >/dev/null 2>&1 && $(DOCKER) image rm -f leash/build-base:latest >/dev/null 2>&1 || true; \
+	  $(DOCKER) image inspect leash/runtime-base:latest >/dev/null 2>&1 && $(DOCKER) image rm -f leash/runtime-base:latest >/dev/null 2>&1 || true; \
+	fi
 	# Misc follows.
 	@rm -rf tmp/log tmp/leash
 	#@reset
