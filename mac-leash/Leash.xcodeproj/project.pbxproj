@@ -599,7 +599,7 @@
 				CODE_SIGN_ENTITLEMENTS = leash/leash.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 20251022.1;
+				CURRENT_PROJECT_VERSION = 20251027.1;
 				DEVELOPMENT_TEAM = W5HSYBBJGA;
 				ENABLE_APP_INTENTS_METADATA_GENERATION = NO;
 				ENABLE_APP_SANDBOX = NO;
@@ -616,7 +616,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.strongdm.leash;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -638,7 +638,7 @@
 				CODE_SIGN_ENTITLEMENTS = leash/leash.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 20251022.1;
+				CURRENT_PROJECT_VERSION = 20251027.1;
 				DEVELOPMENT_TEAM = W5HSYBBJGA;
 				ENABLE_APP_INTENTS_METADATA_GENERATION = NO;
 				ENABLE_APP_SANDBOX = NO;
@@ -655,7 +655,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.strongdm.leash;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -674,7 +674,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = LeashES/LeashES.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20251022.1;
+				CURRENT_PROJECT_VERSION = 20251027.1;
 				DEVELOPMENT_TEAM = W5HSYBBJGA;
 				ENABLE_APP_INTENTS_METADATA_GENERATION = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -689,7 +689,7 @@
 					"@executable_path/../../../../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.strongdm.leash.LeashES;
 				PRODUCT_NAME = "$(inherited)";
 				REGISTER_APP_GROUPS = YES;
@@ -708,7 +708,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = LeashES/LeashES.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20251022.1;
+				CURRENT_PROJECT_VERSION = 20251027.1;
 				DEVELOPMENT_TEAM = W5HSYBBJGA;
 				ENABLE_APP_INTENTS_METADATA_GENERATION = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -723,7 +723,7 @@
 					"@executable_path/../../../../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.strongdm.leash.LeashES;
 				PRODUCT_NAME = "$(inherited)";
 				REGISTER_APP_GROUPS = YES;
@@ -810,7 +810,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = LeashNetworkFilter/LeashNetworkFilter.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20251022.1;
+				CURRENT_PROJECT_VERSION = 20251027.1;
 				DEVELOPMENT_TEAM = W5HSYBBJGA;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -825,7 +825,7 @@
 					"@executable_path/../../../../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.strongdm.leash.LeashNetworkFilter;
 				PRODUCT_NAME = "$(inherited)";
 				REGISTER_APP_GROUPS = YES;
@@ -844,7 +844,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = LeashNetworkFilter/LeashNetworkFilter.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20251022.1;
+				CURRENT_PROJECT_VERSION = 20251027.1;
 				DEVELOPMENT_TEAM = W5HSYBBJGA;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -859,7 +859,7 @@
 					"@executable_path/../../../../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.strongdm.leash.LeashNetworkFilter;
 				PRODUCT_NAME = "$(inherited)";
 				REGISTER_APP_GROUPS = YES;
