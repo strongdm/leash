@@ -113,6 +113,19 @@ main() {
         unset _extra_target_images
     fi
 
+    local base_build_image="${BASE_BUILD_IMAGE:-build-base}"
+    if [ -z "${base_build_image}" ]; then
+        base_build_image="build-base"
+    fi
+    local base_runtime_image="${BASE_RUNTIME_IMAGE:-runtime-base}"
+    if [ -z "${base_runtime_image}" ]; then
+        base_runtime_image="runtime-base"
+    fi
+    local -a leash_base_args=(
+        --build-arg BASE_BUILD_IMAGE="${base_build_image}"
+        --build-arg BASE_RUNTIME_IMAGE="${base_runtime_image}"
+    )
+
     local commit
     commit="$(git rev-parse --short=7 HEAD)"
     local build_date
@@ -136,6 +149,7 @@ main() {
     fi
     if [ -z "${leash_source}" ]; then
         docker_build_push "${leash_image}" "${version}" \
+            "${leash_base_args[@]}" \
             --file Dockerfile.leash \
             --target final-prebuilt \
             --build-arg UI_SOURCE=ui-prebuilt \
@@ -162,6 +176,7 @@ main() {
         fi
 
         docker_build_push "${leash_target}" "${version}" \
+            "${leash_base_args[@]}" \
             --file Dockerfile.leash \
             --target final-prebuilt \
             --build-arg UI_SOURCE=ui-prebuilt \
