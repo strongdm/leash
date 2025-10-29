@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -60,16 +61,29 @@ func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 
 func setTempLeashDir(t *testing.T) {
 	t.Helper()
-	old := os.Getenv("LEASH_DIR")
 	temp := t.TempDir()
+	private := filepath.Join(temp, "private")
+	if err := os.MkdirAll(private, 0o700); err != nil {
+		t.Fatalf("failed to create private dir: %v", err)
+	}
+	oldPublic := os.Getenv("LEASH_DIR")
+	oldPrivate := os.Getenv("LEASH_PRIVATE_DIR")
 	if err := os.Setenv("LEASH_DIR", temp); err != nil {
 		t.Fatalf("failed to set LEASH_DIR: %v", err)
 	}
+	if err := os.Setenv("LEASH_PRIVATE_DIR", private); err != nil {
+		t.Fatalf("failed to set LEASH_PRIVATE_DIR: %v", err)
+	}
 	t.Cleanup(func() {
-		if old == "" {
+		if oldPublic == "" {
 			_ = os.Unsetenv("LEASH_DIR")
 		} else {
-			_ = os.Setenv("LEASH_DIR", old)
+			_ = os.Setenv("LEASH_DIR", oldPublic)
+		}
+		if oldPrivate == "" {
+			_ = os.Unsetenv("LEASH_PRIVATE_DIR")
+		} else {
+			_ = os.Setenv("LEASH_PRIVATE_DIR", oldPrivate)
 		}
 	})
 }

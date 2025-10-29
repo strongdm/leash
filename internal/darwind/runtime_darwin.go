@@ -360,6 +360,66 @@ func preFlight(cfg *runtimeConfig) error {
 		}
 	}
 
+	publicDir := strings.TrimSpace(os.Getenv("LEASH_DIR"))
+	if publicDir == "" {
+		publicDir = filepath.Join(os.TempDir(), "leash")
+		if err := os.Setenv("LEASH_DIR", publicDir); err != nil {
+			return fmt.Errorf("set LEASH_DIR: %w", err)
+		}
+	}
+	if err := os.MkdirAll(publicDir, 0o755); err != nil {
+		return fmt.Errorf("prepare LEASH_DIR %q: %w", publicDir, err)
+	}
+	if info, err := os.Stat(publicDir); err != nil {
+		return fmt.Errorf("inspect LEASH_DIR %q: %w", publicDir, err)
+	} else if !info.IsDir() {
+		return fmt.Errorf("LEASH_DIR %q is not a directory", publicDir)
+	} else if perm := info.Mode().Perm(); perm != 0o755 {
+		if err := os.Chmod(publicDir, 0o755); err != nil {
+			return fmt.Errorf("enforce LEASH_DIR permissions for %q: %w", publicDir, err)
+		}
+		log.Printf("event=darwin.public-dir.permissions.adjust path=%q previous=%04o new=0755", publicDir, perm)
+	}
+
+	privateDir := strings.TrimSpace(os.Getenv("LEASH_PRIVATE_DIR"))
+	if privateDir == "" {
+		privateDir = filepath.Join(publicDir, "private")
+		if err := os.Setenv("LEASH_PRIVATE_DIR", privateDir); err != nil {
+			return fmt.Errorf("set LEASH_PRIVATE_DIR: %w", err)
+		}
+	}
+	if err := os.MkdirAll(privateDir, 0o700); err != nil {
+		return fmt.Errorf("prepare LEASH_PRIVATE_DIR %q: %w", privateDir, err)
+	}
+	info, err := os.Stat(privateDir)
+	if err != nil {
+		return fmt.Errorf("inspect LEASH_PRIVATE_DIR %q: %w", privateDir, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("LEASH_PRIVATE_DIR %q is not a directory", privateDir)
+	}
+	if perm := info.Mode().Perm(); perm != 0o700 {
+		if err := os.Chmod(privateDir, 0o700); err != nil {
+			return fmt.Errorf("enforce LEASH_PRIVATE_DIR permissions for %q: %w", privateDir, err)
+		}
+		log.Printf("event=darwin.private-dir.permissions.adjust path=%q previous=%04o new=0700", privateDir, perm)
+	}
+
+	keyPath := filepath.Join(privateDir, "ca-key.pem")
+	if keyInfo, err := os.Stat(keyPath); err == nil {
+		if keyInfo.IsDir() {
+			return fmt.Errorf("LEASH_PRIVATE_DIR key path %q is a directory", keyPath)
+		}
+		if perm := keyInfo.Mode().Perm(); perm != 0o600 {
+			if err := os.Chmod(keyPath, 0o600); err != nil {
+				return fmt.Errorf("enforce CA key permissions for %q: %w", keyPath, err)
+			}
+			log.Printf("event=darwin.private-key.permissions.adjust path=%q previous=%04o new=0600", keyPath, perm)
+		}
+	} else if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("inspect CA key at %q: %w", keyPath, err)
+	}
+
 	return nil
 }
 

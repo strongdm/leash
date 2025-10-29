@@ -303,6 +303,37 @@ func preFlight(cfg *runtimeConfig) error {
 		}
 	}
 
+	privateDir := strings.TrimSpace(os.Getenv("LEASH_PRIVATE_DIR"))
+	if privateDir == "" {
+		return fmt.Errorf("LEASH_PRIVATE_DIR environment variable is required")
+	}
+	info, err = os.Stat(privateDir)
+	if err != nil {
+		return fmt.Errorf("validate LEASH_PRIVATE_DIR %q: %w", privateDir, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("LEASH_PRIVATE_DIR %q is not a directory", privateDir)
+	}
+	if perm := info.Mode().Perm(); perm != 0o700 {
+		if err := os.Chmod(privateDir, 0o700); err != nil {
+			log.Printf("Warning: expected LEASH_PRIVATE_DIR=%s permissions 0700 but found %o; chmod failed: %v", privateDir, perm, err)
+			return fmt.Errorf("LEASH_PRIVATE_DIR %q must have permission 0700 (got %o)", privateDir, perm)
+		}
+		log.Printf("Warning: adjusted LEASH_PRIVATE_DIR permissions from %o to 0700", perm)
+	}
+	keyPath := filepath.Join(privateDir, "ca-key.pem")
+	if keyInfo, err := os.Stat(keyPath); err == nil {
+		if keyInfo.IsDir() {
+			return fmt.Errorf("CA key path %q is a directory", keyPath)
+		}
+		if keyPerm := keyInfo.Mode().Perm(); keyPerm != 0o600 {
+			return fmt.Errorf("CA key %q must have permission 0600 (got %o)", keyPath, keyPerm)
+		}
+	}
+
+	publicDir := getLeashDirFromEnv()
+	log.Printf("leashd_mounts public=%s private=%s", publicDir, privateDir)
+
 	return nil
 }
 

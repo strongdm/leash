@@ -20,6 +20,7 @@ const (
 	cgroupPathFile = shareRoot + "/cgroup-path"
 	selfCgroupPath = "/proc/self/cgroup"
 	bootstrapPath  = shareRoot + "/" + entrypoint.BootstrapReadyFileName
+	caCertPath     = shareRoot + "/ca-cert.pem"
 )
 
 func main() {
@@ -67,7 +68,7 @@ func main() {
 	os.Stderr.WriteString("leash-entry: waiting for leash certificate\n")
 
 	// Poll for CA certificate
-	caCertFile := "/leash/ca-cert.pem"
+	caCertFile := caCertPath
 	for {
 		if _, err := os.Stat(caCertFile); err == nil {
 			break

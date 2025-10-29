@@ -120,4 +120,4 @@ Dive deeper with [CEDAR.md](docs/design/CEDAR.md) for ready-to-adapt snippets.
 ## Troubleshooting & Next Steps
 
 - Reset mount decisions or inspect config behavior with the tips in [CONFIG.md](docs/CONFIG.md#L1).
-- Explore contributor workflows in [DEVELOPMENT.md](docs/DEVELOPMENT.md) and [CONTRIBUTORS.md](CONTRIBUTORS.md).
+- Explore the development process in [DEVELOPMENT.md](docs/DEVELOPMENT.md) and [CONTRIBUTORS.md](CONTRIBUTORS.md).

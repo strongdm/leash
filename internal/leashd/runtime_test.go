@@ -1,12 +1,15 @@
 package leashd
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
 	"testing"
+
+	"log"
 
 	"github.com/strongdm/leash/internal/policy"
 )
@@ -20,7 +23,81 @@ when {
     resource in [ Dir::"/tmp" ]
 };`
 
-var iptablesOverrideMu sync.Mutex
+var (
+	iptablesOverrideMu sync.Mutex
+	privateDirMu       sync.Mutex
+	logCaptureMu       sync.Mutex
+)
+
+func provisionLeashEnv(t *testing.T) (string, string) {
+	t.Helper()
+
+	privateDirMu.Lock()
+	base, err := os.MkdirTemp("", "leash-env-")
+	if err != nil {
+		t.Fatalf("failed to create leash env base: %v", err)
+	}
+	publicDir := filepath.Join(base, "public")
+	privateDir := filepath.Join(base, "private")
+	if err := os.MkdirAll(publicDir, 0o755); err != nil {
+		t.Fatalf("failed to create public dir: %v", err)
+	}
+	if err := os.MkdirAll(privateDir, 0o700); err != nil {
+		t.Fatalf("failed to create private dir: %v", err)
+	}
+
+	prevPublic, hadPublic := os.LookupEnv("LEASH_DIR")
+	prevPrivate, hadPrivate := os.LookupEnv("LEASH_PRIVATE_DIR")
+	if err := os.Setenv("LEASH_DIR", publicDir); err != nil {
+		t.Fatalf("set LEASH_DIR: %v", err)
+	}
+	if err := os.Setenv("LEASH_PRIVATE_DIR", privateDir); err != nil {
+		t.Fatalf("set LEASH_PRIVATE_DIR: %v", err)
+	}
+
+	t.Cleanup(func() {
+		if hadPublic {
+			_ = os.Setenv("LEASH_DIR", prevPublic)
+		} else {
+			_ = os.Unsetenv("LEASH_DIR")
+		}
+		if hadPrivate {
+			_ = os.Setenv("LEASH_PRIVATE_DIR", prevPrivate)
+		} else {
+			_ = os.Unsetenv("LEASH_PRIVATE_DIR")
+		}
+		_ = os.RemoveAll(base)
+		privateDirMu.Unlock()
+	})
+
+	return publicDir, privateDir
+}
+
+func TestMain(m *testing.M) {
+	base, err := os.MkdirTemp("", "leashd-test-")
+	if err != nil {
+		panic(err)
+	}
+	public := filepath.Join(base, "public")
+	private := filepath.Join(base, "private")
+	if err := os.MkdirAll(public, 0o755); err != nil {
+		panic(err)
+	}
+	if err := os.MkdirAll(private, 0o700); err != nil {
+		panic(err)
+	}
+	if err := os.Setenv("LEASH_DIR", public); err != nil {
+		panic(err)
+	}
+	if err := os.Setenv("LEASH_PRIVATE_DIR", private); err != nil {
+		panic(err)
+	}
+	code := m.Run()
+	_ = os.Unsetenv("LEASH_PRIVATE_DIR")
+	_ = os.Unsetenv("LEASH_DIR")
+	_ = os.RemoveAll(base)
+	os.Exit(code)
+}
 
 func writePolicyFile(t *testing.T, content string) string {
 	t.Helper()
@@ -55,6 +132,7 @@ func TestPreFlightNilConfig(t *testing.T) {
 
 func TestPreFlightMissingPolicy(t *testing.T) {
 	t.Parallel()
+	_, _ = provisionLeashEnv(t)
 	tempDir := t.TempDir()
 	policyPath := filepath.Join(tempDir, "missing.cedar")
 	cgroupPath := createCgroupStub(t, true)
@@ -79,6 +157,7 @@ func TestPreFlightMissingPolicy(t *testing.T) {
 
 func TestPreFlightInvalidCedar(t *testing.T) {
 	t.Parallel()
+	_, _ = provisionLeashEnv(t)
 	badCedar := "permit (principal"
 	policyPath := writePolicyFile(t, badCedar)
 	cgroupPath := createCgroupStub(t, true)
@@ -94,6 +173,7 @@ func TestPreFlightInvalidCedar(t *testing.T) {
 
 func TestPreFlightUnreadablePolicy(t *testing.T) {
 	t.Parallel()
+	_, _ = provisionLeashEnv(t)
 	dir := t.TempDir()
 	policyPath := filepath.Join(dir, "policy.cedar")
 	if err := os.Mkdir(policyPath, 0o755); err != nil {
@@ -107,6 +187,90 @@ func TestPreFlightUnreadablePolicy(t *testing.T) {
 	}
 	if err := preFlight(cfg); err == nil || !strings.Contains(err.Error(), "invalid Cedar policy") {
 		t.Fatalf("expected invalid Cedar error due to unreadable file, got %v", err)
+	}
+}
+
+func TestPreFlightRequiresPrivateDir(t *testing.T) {
+	t.Parallel()
+
+	_, privateDir := provisionLeashEnv(t)
+	if err := os.Unsetenv("LEASH_PRIVATE_DIR"); err != nil {
+		t.Fatalf("unset LEASH_PRIVATE_DIR: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Setenv("LEASH_PRIVATE_DIR", privateDir); err != nil {
+			t.Fatalf("restore LEASH_PRIVATE_DIR: %v", err)
+		}
+	})
+
+	policyPath := writePolicyFile(t, sampleCedarPolicy)
+	cgroupPath := createCgroupStub(t, true)
+	cfg := &runtimeConfig{
+		PolicyPath: policyPath,
+		ProxyPort:  "18000",
+		CgroupPath: cgroupPath,
+	}
+
+	if err := preFlight(cfg); err == nil || !strings.Contains(err.Error(), "LEASH_PRIVATE_DIR environment variable is required") {
+		t.Fatalf("expected LEASH_PRIVATE_DIR requirement error, got %v", err)
+	}
+}
+
+func TestPreFlightRejectsWorldReadableKey(t *testing.T) {
+	t.Parallel()
+
+	_, privateDir := provisionLeashEnv(t)
+	keyPath := filepath.Join(privateDir, "ca-key.pem")
+	if err := os.WriteFile(keyPath, []byte("dummy"), 0o644); err != nil {
+		t.Fatalf("write key: %v", err)
+	}
+
+	policyPath := writePolicyFile(t, sampleCedarPolicy)
+	cgroupPath := createCgroupStub(t, true)
+	cfg := &runtimeConfig{
+		PolicyPath: policyPath,
+		ProxyPort:  "18000",
+		CgroupPath: cgroupPath,
+	}
+
+	if err := preFlight(cfg); err == nil || !strings.Contains(err.Error(), "must have permission 0600") {
+		t.Fatalf("expected CA key permission error, got %v", err)
+	}
+}
+
+func TestPreFlightLogsMountSummary(t *testing.T) {
+	t.Parallel()
+
+	logCaptureMu.Lock()
+	defer logCaptureMu.Unlock()
+
+	_, _ = provisionLeashEnv(t)
+
+	originalWriter := log.Writer()
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(originalWriter) })
+
+	policyPath := writePolicyFile(t, sampleCedarPolicy)
+	cgroupPath := createCgroupStub(t, true)
+	cfg := &runtimeConfig{
+		PolicyPath: policyPath,
+		ProxyPort:  "18000",
+		CgroupPath: cgroupPath,
+	}
+
+	if err := preFlight(cfg); err != nil {
+		t.Fatalf("preFlight returned error: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "leashd_mounts public=") {
+		t.Fatalf("mount summary log missing; got %q", output)
+	}
+
+	logPath := filepath.Join("..", "..", ".scratch", "runtime-mount-log.txt")
+	if err := os.WriteFile(logPath, []byte(output), 0o644); err != nil {
+		t.Fatalf("write runtime mount log: %v", err)
 	}
 }
 
@@ -132,6 +296,7 @@ func TestEnsureDefaultCedarFileCreatesBaselineWhenMissing(t *testing.T) {
 
 func TestPreFlightValidConfig(t *testing.T) {
 	t.Parallel()
+	_, _ = provisionLeashEnv(t)
 	policyPath := writePolicyFile(t, sampleCedarPolicy)
 	tempRoot := t.TempDir()
 	logPath := filepath.Join(tempRoot, "logs", "events.log")
@@ -152,6 +317,7 @@ func TestPreFlightValidConfig(t *testing.T) {
 
 func TestPreFlightInvalidCgroup(t *testing.T) {
 	t.Parallel()
+	_, _ = provisionLeashEnv(t)
 	policyPath := writePolicyFile(t, sampleCedarPolicy)
 	cgroupDir := createCgroupStub(t, false)
 	cfg := &runtimeConfig{
@@ -166,6 +332,7 @@ func TestPreFlightInvalidCgroup(t *testing.T) {
 
 func TestPreFlightInvalidProxyPort(t *testing.T) {
 	t.Parallel()
+	_, _ = provisionLeashEnv(t)
 	policyPath := writePolicyFile(t, sampleCedarPolicy)
 	cgroupPath := createCgroupStub(t, true)
 	cfg := &runtimeConfig{

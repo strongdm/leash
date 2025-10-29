@@ -22,6 +22,10 @@ Policies aim for deny‑by‑default with explicit, explainable allows. Start in
   - Allow/Deny per host
   - Header injection at the boundary (secrets never enter the agent)
 
+### Proxy Certificate Management
+
+- Public/private CA split: Target container only sees `/leash/ca-cert.pem`, while leashd reads `/leash-private/ca-key.pem` via `LEASH_PRIVATE_DIR` (0700) and keeps the key file mode at `0600`.
+
 ## Scoping
 
 Enforcement activates for specific cgroups only, avoiding host/system interference.
