@@ -129,8 +129,10 @@ func TestLaunchCommandsUseSplitMounts(t *testing.T) {
 	}
 
 	timestamp := time.Now().UTC().Format(time.RFC3339Nano)
+	tmpDir := t.TempDir()
+	t.Cleanup(func() { _ = os.RemoveAll(tmpDir) })
+	outputPath := filepath.Join(tmpDir, "verify_mounts.txt")
 	snapshot := fmt.Sprintf("timestamp: %s\ntarget: docker %s\nleash: docker %s\nlogs:\n%s", timestamp, strings.Join(targetArgs, " "), strings.Join(leashArgs, " "), logBuffer.String())
-	outputPath := filepath.Join("..", "..", ".scratch", "verify_mounts.txt")
 	if err := os.WriteFile(outputPath, []byte(snapshot), 0o644); err != nil {
 		t.Fatalf("failed to write snapshot: %v", err)
 	}

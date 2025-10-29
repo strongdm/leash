@@ -26,7 +26,9 @@ func TestPreFlightFailsOnKeyPermission(t *testing.T) {
 	if err == nil || !containsAll(err.Error(), "CA key", "0600") {
 		t.Fatalf("expected key permission error, got %v", err)
 	}
-	outputPath := filepath.Join("..", "..", ".scratch", "leashd-permission-errors.txt")
+	tmpDir := t.TempDir()
+	t.Cleanup(func() { _ = os.RemoveAll(tmpDir) })
+	outputPath := filepath.Join(tmpDir, "leashd-permission-errors.txt")
 	if writeErr := os.WriteFile(outputPath, []byte("key-permission-error: "+err.Error()+"\n"), 0o644); writeErr != nil {
 		t.Fatalf("write permission error snapshot: %v", writeErr)
 	}
