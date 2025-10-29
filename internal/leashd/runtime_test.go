@@ -268,7 +268,9 @@ func TestPreFlightLogsMountSummary(t *testing.T) {
 		t.Fatalf("mount summary log missing; got %q", output)
 	}
 
-	logPath := filepath.Join("..", "..", ".scratch", "runtime-mount-log.txt")
+	tmpDir := t.TempDir()
+	t.Cleanup(func() { _ = os.RemoveAll(tmpDir) })
+	logPath := filepath.Join(tmpDir, "runtime-mount-log.txt")
 	if err := os.WriteFile(logPath, []byte(output), 0o644); err != nil {
 		t.Fatalf("write runtime mount log: %v", err)
 	}

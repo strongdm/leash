@@ -66,5 +66,3 @@ If trusted publishing is unavailable:
    npm publish dist/npm/strongdm-leash-<semver>.tgz --access public --tag <alpha|latest>
    ```
 4. Record the manual publish in the release notes and rerun CI to ensure the normal workflow succeeds next time.
-
-Keep the `.scratch/npm1-4/phase3` and `.scratch/npm1-4/phase5` harnesses as references for launcher smoke tests and packaging dry runs.
