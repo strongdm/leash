@@ -7,7 +7,9 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"math/big"
 	"net"
@@ -23,25 +25,55 @@ type CertificateAuthority struct {
 }
 
 func NewCertificateAuthority() (*CertificateAuthority, error) {
-	// Check if CA already exists
-	certPath := filepath.Join(getLeashDir(), "ca-cert.pem")
-	if _, err := os.Stat(certPath); err == nil {
-		ca, err := loadCA()
+	publicDir := getLeashPublicDir()
+	privateDir, err := getLeashPrivateDir()
+	if err != nil {
+		return nil, err
+	}
+
+	certPath := filepath.Join(publicDir, "ca-cert.pem")
+	keyPath := filepath.Join(privateDir, "ca-key.pem")
+
+	certInfo, certErr := os.Stat(certPath)
+	keyInfo, keyErr := os.Stat(keyPath)
+
+	if certErr == nil && !certInfo.Mode().IsRegular() {
+		return nil, fmt.Errorf("CA certificate %s must be a regular file", certPath)
+	}
+	if keyErr == nil && !keyInfo.Mode().IsRegular() {
+		return nil, fmt.Errorf("CA key %s must be a regular file", keyPath)
+	}
+
+	switch {
+	case certErr == nil && keyErr == nil:
+		ca, err := loadCA(certPath, keyPath)
 		if err == nil {
-			log.Printf("event=ca.restore dir=%s", getLeashDir())
+			log.Printf("event=ca.restore public_dir=%s private_dir=%s", publicDir, privateDir)
 		}
 		return ca, err
+	case certErr == nil && errors.Is(keyErr, fs.ErrNotExist):
+		legacyKey := filepath.Join(publicDir, "ca-key.pem")
+		if _, err := os.Stat(legacyKey); err == nil {
+			return nil, fmt.Errorf("incomplete certificate authority state: found certificate at %s but private key remains at %s; move it to %s", certPath, legacyKey, keyPath)
+		}
+		return nil, fmt.Errorf("incomplete certificate authority state: found certificate at %s but missing key at %s", certPath, keyPath)
+	case errors.Is(certErr, fs.ErrNotExist) && keyErr == nil:
+		return nil, fmt.Errorf("incomplete certificate authority state: found key at %s but missing certificate at %s", keyPath, certPath)
+	case certErr != nil && !errors.Is(certErr, fs.ErrNotExist):
+		return nil, fmt.Errorf("failed to stat CA certificate: %w", certErr)
+	case keyErr != nil && !errors.Is(keyErr, fs.ErrNotExist):
+		return nil, fmt.Errorf("failed to stat CA key: %w", keyErr)
 	}
 
 	// Generate new CA
-	ca, err := generateCA()
+	ca, err := generateCA(publicDir, privateDir)
 	if err == nil {
-		log.Printf("event=ca.generate dir=%s", getLeashDir())
+		log.Printf("event=ca.generate public_dir=%s private_dir=%s", publicDir, privateDir)
 	}
 	return ca, err
 }
 
-func generateCA() (*CertificateAuthority, error) {
+func generateCA(publicDir, privateDir string) (*CertificateAuthority, error) {
 	// Generate RSA key
 	caKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -91,36 +123,34 @@ func generateCA() (*CertificateAuthority, error) {
 	}
 
 	// Ensure directory exists
-	if err := os.MkdirAll(getLeashDir(), 0o755); err != nil {
-		return nil, fmt.Errorf("failed to create LEASH_DIR: %w", err)
+	if err := ensureDir(publicDir, 0o755); err != nil {
+		return nil, fmt.Errorf("failed to prepare public dir: %w", err)
+	}
+	if err := ensureDir(privateDir, 0o700); err != nil {
+		return nil, fmt.Errorf("failed to prepare private dir: %w", err)
 	}
 
-	// Save CA certificate
-	certOut, err := os.Create(filepath.Join(getLeashDir(), "ca-cert.pem"))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create ca-cert.pem: %w", err)
-	}
-	defer certOut.Close()
-
-	if err := pem.Encode(certOut, &pem.Block{
+	certData := pem.EncodeToMemory(&pem.Block{
 		Type:  "CERTIFICATE",
 		Bytes: caCertDER,
-	}); err != nil {
-		return nil, fmt.Errorf("failed to write CA certificate: %w", err)
+	})
+	if certData == nil {
+		return nil, fmt.Errorf("failed to encode CA certificate")
 	}
 
-	// Save CA private key
-	keyOut, err := os.Create(filepath.Join(getLeashDir(), "ca-key.pem"))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create ca-key.pem: %w", err)
-	}
-	defer keyOut.Close()
-
-	if err := pem.Encode(keyOut, &pem.Block{
+	keyData := pem.EncodeToMemory(&pem.Block{
 		Type:  "RSA PRIVATE KEY",
 		Bytes: x509.MarshalPKCS1PrivateKey(caKey),
-	}); err != nil {
-		return nil, fmt.Errorf("failed to write CA key: %w", err)
+	})
+	if keyData == nil {
+		return nil, fmt.Errorf("failed to encode CA key")
+	}
+
+	if err := writeFileAtomic(filepath.Join(publicDir, "ca-cert.pem"), certData, 0o644); err != nil {
+		return nil, fmt.Errorf("failed to persist CA certificate: %w", err)
+	}
+	if err := writeFileAtomic(filepath.Join(privateDir, "ca-key.pem"), keyData, 0o600); err != nil {
+		return nil, fmt.Errorf("failed to persist CA key: %w", err)
 	}
 
 	return &CertificateAuthority{
@@ -129,9 +159,16 @@ func generateCA() (*CertificateAuthority, error) {
 	}, nil
 }
 
-func loadCA() (*CertificateAuthority, error) {
+func loadCA(certPath, keyPath string) (*CertificateAuthority, error) {
 	// Load CA certificate
-	certPEM, err := os.ReadFile(filepath.Join(getLeashDir(), "ca-cert.pem"))
+	certInfo, err := os.Stat(certPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat CA certificate: %w", err)
+	}
+	if !certInfo.Mode().IsRegular() {
+		return nil, fmt.Errorf("CA certificate %s must be a regular file", certPath)
+	}
+	certPEM, err := os.ReadFile(certPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read CA certificate: %w", err)
 	}
@@ -147,7 +184,24 @@ func loadCA() (*CertificateAuthority, error) {
 	}
 
 	// Load CA private key
-	keyPEM, err := os.ReadFile(filepath.Join(getLeashDir(), "ca-key.pem"))
+	info, err := os.Stat(keyPath)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			publicKeyPath := filepath.Join(filepath.Dir(certPath), "ca-key.pem")
+			if _, pubErr := os.Stat(publicKeyPath); pubErr == nil {
+				return nil, fmt.Errorf("failed to stat CA key: expected key at %s but found %s; move the key into the private directory", keyPath, publicKeyPath)
+			}
+		}
+		return nil, fmt.Errorf("failed to stat CA key: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("CA key %s must be a regular file", keyPath)
+	}
+	if info.Mode().Perm() != 0o600 {
+		return nil, fmt.Errorf("invalid permission on CA key %s: got %o, want 600", keyPath, info.Mode().Perm())
+	}
+
+	keyPEM, err := os.ReadFile(keyPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read CA key: %w", err)
 	}
@@ -222,11 +276,60 @@ func (ca *CertificateAuthority) GenerateCertificate(host string) (*tls.Certifica
 	return cert, nil
 }
 
-// getLeashDir returns the directory where Leash persists state (CA, runtime Cedar, etc.).
+func ensureDir(path string, mode os.FileMode) error {
+	if err := os.MkdirAll(path, mode); err != nil {
+		return err
+	}
+	return os.Chmod(path, mode)
+}
+
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, "ca-tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	if err := tmp.Chmod(perm); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	return nil
+}
+
+// getLeashPublicDir returns the directory where Leash persists public assets.
 // Defaults to "/leash" if LEASH_DIR is not set.
-func getLeashDir() string {
+func getLeashPublicDir() string {
 	if v := os.Getenv("LEASH_DIR"); strings.TrimSpace(v) != "" {
 		return v
 	}
 	return "/leash"
+}
+
+// getLeashPrivateDir returns the directory that holds Leash private assets.
+// LEASH_PRIVATE_DIR must be set by the runtime.
+func getLeashPrivateDir() (string, error) {
+	if v := os.Getenv("LEASH_PRIVATE_DIR"); strings.TrimSpace(v) != "" {
+		return v, nil
+	}
+	return "", fmt.Errorf("LEASH_PRIVATE_DIR environment variable is required")
 }

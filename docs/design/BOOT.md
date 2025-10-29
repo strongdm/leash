@@ -72,7 +72,8 @@ stateDiagram-v2
 | Runner            | CLI orchestrator. Launches containers, watches bootstrap status, tears down on failure. | Gains bootstrap timeout logic and clearer error messaging.    |
 | `leash-entry`     | Agent-side bootstrapper. Responsible for CA install and creating `bootstrap.ready`. | Fails fast on bootstrap issues and exits non-zero.            |
 | Leash daemon      | Enforcement engine. Adds staging phase and defers policy attach until handshake. | Drops any stale marker, polls for new one, enforces timeouts. |
-| Shared volume     | `/leash` bind mount used for coordination.                                  | Holds `leash-entry.ready`, `bootstrap.ready`, CA artifacts.   |
+| Public volume     | `/leash` bind mount shared by manager and target.                           | Stores `leash-entry.ready`, `bootstrap.ready`, `cgroup-path`, and `ca-cert.pem` (0644). |
+| Private volume    | `/leash-private` bind mount visible only to the manager.                    | Stores `ca-key.pem` (0600); runner enforces 0700 dir perms before launch. |
 | Marker file       | `bootstrap.ready` (JSON with PID/hostname/timestamp).                        | Created atomically to avoid partial writes; cleared on start. |
 
 ## Failure Handling

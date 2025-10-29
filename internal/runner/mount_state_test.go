@@ -56,6 +56,7 @@ func TestLaunchTargetContainerAppendsAutoMount(t *testing.T) {
 		},
 		logger: log.New(&logBuf, "", 0),
 	}
+	r.verbose = true
 	hostRoot := t.TempDir()
 	hostDir := filepath.Join(hostRoot, ".codex")
 	if err := os.Mkdir(hostDir, 0o755); err != nil {
@@ -122,6 +123,7 @@ func TestLaunchTargetContainerAppendsFileMount(t *testing.T) {
 		},
 		logger: log.New(ioDiscard{}, "", 0),
 	}
+	r.verbose = true
 	hostRoot := t.TempDir()
 	hostDir := filepath.Join(hostRoot, ".claude")
 	if err := os.Mkdir(hostDir, 0o755); err != nil {
@@ -239,6 +241,7 @@ func TestInitMountStateUnsupportedCommand(t *testing.T) {
 		opts:   options{subcommand: "notreal"},
 		logger: log.New(ioDiscard{}, "", 0),
 	}
+	r.verbose = true
 
 	if err := r.initMountState(context.Background(), t.TempDir()); err != nil {
 		t.Fatalf("initMountState returned error: %v", err)
@@ -272,6 +275,7 @@ func TestInitMountStateWarnsWhenPersistedHostMissing(t *testing.T) {
 		opts:   options{subcommand: "codex"},
 		logger: log.New(&logBuf, "", 0),
 	}
+	r.verbose = true
 
 	cwd := filepath.Join(home, "project")
 	if err := os.MkdirAll(cwd, 0o755); err != nil {
@@ -309,6 +313,7 @@ func TestInitMountStateCreatesClaudeMountStateWithoutHostDir(t *testing.T) {
 		opts:   options{subcommand: "claude"},
 		logger: log.New(ioDiscard{}, "", 0),
 	}
+	r.verbose = true
 
 	if err := r.initMountState(context.Background(), cwd); err != nil {
 		t.Fatalf("initMountState returned error: %v", err)
@@ -369,6 +374,7 @@ func TestLaunchTargetContainerLogsDuplicateSkip(t *testing.T) {
 		},
 		logger: log.New(&logBuf, "", 0),
 	}
+	r.verbose = true
 	r.mountState = &mountState{
 		command: "codex",
 		mounts: []configstore.Mount{
@@ -433,6 +439,7 @@ func TestLaunchTargetContainerWarnsWhenHostNotDirectory(t *testing.T) {
 		},
 		logger: log.New(&logBuf, "", 0),
 	}
+	r.verbose = true
 	r.mountState = &mountState{
 		command: "codex",
 		mounts: []configstore.Mount{

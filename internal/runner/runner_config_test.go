@@ -356,7 +356,7 @@ func TestLogDevImageSelectionsEmitsMessage(t *testing.T) {
 	r := &runner{
 		cfg:     cfg,
 		logger:  log.New(&buf, "", 0),
-		verbose: false,
+		verbose: true,
 	}
 
 	r.logDevImageSelections()

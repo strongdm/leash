@@ -38,6 +38,11 @@ const (
 )
 
 const (
+	leashPublicMount  = "/leash"
+	leashPrivateMount = "/leash-private"
+)
+
+const (
 	envAnthropicAPIKey = "ANTHROPIC_API_KEY"
 	envOpenAIAPIKey    = "OPENAI_API_KEY"
 	envDashscopeAPIKey = "DASHSCOPE_API_KEY"
@@ -107,6 +112,8 @@ type config struct {
 	workDirIsTemp       bool
 	shareDir            string
 	shareDirFromEnv     bool
+	privateDir          string
+	privateDirCreated   bool
 	logDir              string
 	cfgDir              string
 	workspaceDir        string
@@ -858,6 +865,8 @@ func loadConfig(callerDir string, opts options) (config, map[string]configstore.
 		cfg.shareDirFromEnv = true
 	}
 
+	cfg.privateDir = filepath.Join(workDir, "private")
+
 	envPolicy := strings.TrimSpace(os.Getenv("LEASH_POLICY_FILE"))
 	// Do not default to docs/example.cedar anymore. If LEASH_POLICY_FILE is
 	// unset, we allow the runtime to generate a permissive policy from Cedar.
@@ -1081,6 +1090,18 @@ func (r *runner) logDevImage(kind, source, sourcePath, image string) {
 	r.logger.Printf("using %s image override from %s: %s", kind, displayPath, image)
 }
 
+// runDocker executes `docker …` commands, suppressing stdout unless the user
+// requested verbose mode. This keeps automated `docker run -d …` invocations
+// from dumping container IDs into normal CLI output while still surfacing raw
+// output when `--verbose` is set.
+func (r *runner) runDocker(ctx context.Context, args ...string) error {
+	if r.verbose {
+		return runCommand(ctx, "docker", args...)
+	}
+	_, err := commandOutput(ctx, "docker", args...)
+	return err
+}
+
 func (r *runner) startContainers(ctx context.Context) error {
 	r.logDevImageSelections()
 
@@ -1114,6 +1135,9 @@ func (r *runner) startContainers(ctx context.Context) error {
 		return fmt.Errorf("create work dir: %w", err)
 	}
 	if err := r.ensureShareDir(); err != nil {
+		return err
+	}
+	if err := r.ensurePrivateDir(); err != nil {
 		return err
 	}
 	bootstrapMarker := filepath.Join(r.cfg.shareDir, entrypoint.BootstrapReadyFileName)
@@ -1168,7 +1192,7 @@ func (r *runner) startContainers(ctx context.Context) error {
 
 	if err := r.waitForFile(filepath.Join(r.cfg.shareDir, "ca-cert.pem"), 50, 200*time.Millisecond); err != nil {
 		r.logger.Println("Warning: Leash CA certificate was not detected after waiting.")
-	} else {
+	} else if r.verbose {
 		r.logger.Printf("Leash CA certificate is available at %s\n", filepath.Join(r.cfg.shareDir, "ca-cert.pem"))
 	}
 
@@ -1430,9 +1454,25 @@ func (r *runner) ensureNotRunning(ctx context.Context) error {
 
 func (r *runner) ensureShareDir() error {
 	if r.cfg.shareDirFromEnv {
-		if err := os.MkdirAll(r.cfg.shareDir, 0o755); err != nil {
+		path := strings.TrimSpace(r.cfg.shareDir)
+		if path == "" {
+			return errors.New("share dir path must not be empty")
+		}
+		clean := filepath.Clean(path)
+		if err := os.MkdirAll(clean, 0o755); err != nil {
 			return fmt.Errorf("create share dir: %w", err)
 		}
+		info, err := os.Stat(clean)
+		if err != nil {
+			return fmt.Errorf("stat share dir: %w", err)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("share dir path %s exists but is not a directory", clean)
+		}
+		if err := os.Chmod(clean, 0o755); err != nil {
+			return fmt.Errorf("set share dir permissions: %w", err)
+		}
+		r.cfg.shareDir = clean
 		r.shareDirCreated = false
 		return nil
 	}
@@ -1440,9 +1480,64 @@ func (r *runner) ensureShareDir() error {
 	if err != nil {
 		return fmt.Errorf("create share dir: %w", err)
 	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		return fmt.Errorf("set share dir permissions: %w", err)
+	}
 	r.cfg.shareDir = dir
 	r.shareDirCreated = true
 	return nil
+}
+
+func (r *runner) ensurePrivateDir() error {
+	path := strings.TrimSpace(r.cfg.privateDir)
+	if path == "" {
+		return errors.New("private dir path must not be empty")
+	}
+	clean := filepath.Clean(path)
+	info, err := os.Stat(clean)
+	switch {
+	case err == nil:
+		if !info.IsDir() {
+			return fmt.Errorf("private dir path %s exists but is not a directory", clean)
+		}
+		perm := info.Mode().Perm()
+		if perm != 0o700 {
+			if err := os.Chmod(clean, 0o700); err != nil {
+				return fmt.Errorf("set private dir permissions: %w", err)
+			}
+			r.logPrivateDirEvent("runner.private-dir.permissions.adjust", map[string]string{
+				"path":     clean,
+				"previous": fmt.Sprintf("%04o", perm),
+				"new":      "0700",
+				"source":   "existing",
+			})
+		}
+		r.cfg.privateDir = clean
+		r.cfg.privateDirCreated = false
+		r.logPrivateDirEvent("runner.private-dir.ready", map[string]string{
+			"path":   clean,
+			"mode":   "0700",
+			"source": "existing",
+		})
+		return nil
+	case os.IsNotExist(err):
+		if err := os.MkdirAll(clean, 0o700); err != nil {
+			return fmt.Errorf("create private dir: %w", err)
+		}
+		if err := os.Chmod(clean, 0o700); err != nil {
+			return fmt.Errorf("set private dir permissions: %w", err)
+		}
+		r.cfg.privateDir = clean
+		r.cfg.privateDirCreated = true
+		r.logPrivateDirEvent("runner.private-dir.ready", map[string]string{
+			"path":   clean,
+			"mode":   "0700",
+			"source": "created",
+		})
+		return nil
+	default:
+		return fmt.Errorf("check private dir: %w", err)
+	}
 }
 
 func (r *runner) syncPolicyFile() error {
@@ -1715,7 +1810,7 @@ func (r *runner) launchTargetContainer(ctx context.Context, stopSignal string) e
 	args := []string{
 		"run", "--pull=missing", "-d",
 		"--name", r.cfg.targetContainer,
-		"--entrypoint", filepath.Join("/leash", entryName),
+		"--entrypoint", filepath.Join(leashPublicMount, entryName),
 		"--cgroupns", "host",
 	}
 	if !r.cfg.listenCfg.Disable {
@@ -1727,23 +1822,37 @@ func (r *runner) launchTargetContainer(ctx context.Context, stopSignal string) e
 	for _, ps := range r.opts.publishes {
 		args = append(args, "-p", ps.toDockerArg())
 	}
+	targetMounts := []string{leashPublicMount, r.cfg.callerDir}
+	targetEnv := []string{
+		fmt.Sprintf("LEASH_DIR=%s", leashPublicMount),
+		fmt.Sprintf("LEASH_ENTRY_READY_FILE=%s/%s", leashPublicMount, entrypoint.ReadyFileName),
+		fmt.Sprintf("LEASH_ENTRY_STOP_SIGNAL=%s", stopSignal),
+		"LEASH_ENTRY_KILL_SIGNAL=SIGKILL",
+		"NODE_OPTIONS=--use-openssl-ca",
+	}
 	args = append(args,
-		"-v", fmt.Sprintf("%s:/leash", r.cfg.shareDir),
+		"-v", fmt.Sprintf("%s:%s", r.cfg.shareDir, leashPublicMount),
 		"-v", fmt.Sprintf("%s:%s", r.cfg.callerDir, r.cfg.callerDir),
 		"-w", r.cfg.callerDir,
-		"-e", fmt.Sprintf("LEASH_ENTRY_READY_FILE=/leash/%s", entrypoint.ReadyFileName),
+		"-e", fmt.Sprintf("LEASH_DIR=%s", leashPublicMount),
+		"-e", fmt.Sprintf("LEASH_ENTRY_READY_FILE=%s/%s", leashPublicMount, entrypoint.ReadyFileName),
 		"-e", fmt.Sprintf("LEASH_ENTRY_STOP_SIGNAL=%s", stopSignal),
 		"-e", "LEASH_ENTRY_KILL_SIGNAL=SIGKILL",
 		"-e", "NODE_OPTIONS=--use-openssl-ca",
 	)
 	for _, env := range r.opts.envVars {
 		args = append(args, "-e", env)
+		targetEnv = append(targetEnv, env)
 	}
 	if hash := strings.TrimSpace(r.workspaceHash); hash != "" {
-		args = append(args, "-e", fmt.Sprintf("LEASH_WORKSPACE_HASH=%s", hash))
+		value := fmt.Sprintf("LEASH_WORKSPACE_HASH=%s", hash)
+		args = append(args, "-e", value)
+		targetEnv = append(targetEnv, value)
 	}
 	if session := strings.TrimSpace(r.sessionID); session != "" {
-		args = append(args, "-e", fmt.Sprintf("LEASH_SESSION_ID=%s", session))
+		value := fmt.Sprintf("LEASH_SESSION_ID=%s", session)
+		args = append(args, "-e", value)
+		targetEnv = append(targetEnv, value)
 	}
 	existingContainers := make(map[string]struct{})
 	existingPairs := make(map[string]struct{})
@@ -1752,10 +1861,12 @@ func (r *runner) launchTargetContainer(ctx context.Context, stopSignal string) e
 			key := volumePairKey(host, container)
 			existingPairs[key] = struct{}{}
 			existingContainers[container] = struct{}{}
+			targetMounts = append(targetMounts, container)
 			continue
 		}
 		if dest := volumeContainerPath(volume); dest != "" {
 			existingContainers[dest] = struct{}{}
+			targetMounts = append(targetMounts, dest)
 		}
 	}
 	if r.mountState != nil {
@@ -1808,6 +1919,7 @@ func (r *runner) launchTargetContainer(ctx context.Context, stopSignal string) e
 			args = append(args, "-v", fmt.Sprintf("%s:%s:%s", host, container, mount.Mode))
 			existingPairs[key] = struct{}{}
 			existingContainers[container] = struct{}{}
+			targetMounts = append(targetMounts, container)
 			if label != "" {
 				r.logger.Printf("Auto-mounted %s (%s) -> %s (scope=%s)", host, label, container, mount.Scope)
 			} else {
@@ -1817,9 +1929,13 @@ func (r *runner) launchTargetContainer(ctx context.Context, stopSignal string) e
 	}
 	for _, volume := range r.opts.volumes {
 		args = append(args, "-v", volume)
+		if dest := volumeContainerPath(volume); dest != "" {
+			targetMounts = append(targetMounts, dest)
+		}
 	}
 	args = append(args, r.cfg.targetImage)
-	if err := runCommand(ctx, "docker", args...); err != nil {
+	r.logContainerConfig("target", targetMounts, targetEnv)
+	if err := r.runDocker(ctx, args...); err != nil {
 		return err
 	}
 	// Print final port mappings
@@ -1899,38 +2015,170 @@ func (r *runner) launchLeashContainer(ctx context.Context, cgroupPath string) er
 		"-v", "/sys/fs/cgroup:/sys/fs/cgroup:ro",
 		"-v", fmt.Sprintf("%s:/log", r.cfg.logDir),
 		"-v", fmt.Sprintf("%s:/cfg", r.cfg.cfgDir),
-		"-v", fmt.Sprintf("%s:/leash", r.cfg.shareDir),
+		"-v", fmt.Sprintf("%s:%s", r.cfg.shareDir, leashPublicMount),
+		"-v", fmt.Sprintf("%s:%s", r.cfg.privateDir, leashPrivateMount),
 		"-e", fmt.Sprintf("LEASH_PROXY_PORT=%s", r.cfg.proxyPort),
 		"-e", fmt.Sprintf("LEASH_LISTEN=%s", r.cfg.listenCfg.Address()),
 		"-e", "LEASH_LOG=/log/events.log",
 		"-e", "LEASH_POLICY=/cfg/leash.cedar",
 		"-e", fmt.Sprintf("LEASH_CGROUP_PATH=%s", cgroupPath),
 		"-e", fmt.Sprintf("LEASH_BOOTSTRAP_TIMEOUT=%s", r.cfg.bootstrapTimeout.String()),
+		"-e", fmt.Sprintf("LEASH_DIR=%s", leashPublicMount),
+		"-e", fmt.Sprintf("LEASH_PRIVATE_DIR=%s", leashPrivateMount),
+	}
+	leashMounts := []string{"/sys/fs/cgroup", "/log", "/cfg", leashPublicMount, leashPrivateMount}
+	leashEnv := []string{
+		fmt.Sprintf("LEASH_PROXY_PORT=%s", r.cfg.proxyPort),
+		fmt.Sprintf("LEASH_LISTEN=%s", r.cfg.listenCfg.Address()),
+		"LEASH_LOG=/log/events.log",
+		"LEASH_POLICY=/cfg/leash.cedar",
+		fmt.Sprintf("LEASH_CGROUP_PATH=%s", cgroupPath),
+		fmt.Sprintf("LEASH_BOOTSTRAP_TIMEOUT=%s", r.cfg.bootstrapTimeout.String()),
+		fmt.Sprintf("LEASH_DIR=%s", leashPublicMount),
+		fmt.Sprintf("LEASH_PRIVATE_DIR=%s", leashPrivateMount),
 	}
 
 	// n.b. Used to show `<title>Leash | {workspace} > {command}</title>` in the frontend.
 	if workspace := strings.TrimSpace(workspaceNameFrom(r.cfg.callerDir)); workspace != "" {
-		args = append(args, "-e", fmt.Sprintf("LEASH_PROJECT=%s", workspace))
+		value := fmt.Sprintf("LEASH_PROJECT=%s", workspace)
+		args = append(args, "-e", value)
+		leashEnv = append(leashEnv, value)
 	}
 	if len(r.opts.command) > 0 {
-		args = append(args, "-e", fmt.Sprintf("LEASH_COMMAND=%s", strings.Join(r.opts.command, " ")))
+		value := fmt.Sprintf("LEASH_COMMAND=%s", strings.Join(r.opts.command, " "))
+		args = append(args, "-e", value)
+		leashEnv = append(leashEnv, value)
 	}
 
 	if r.cfg.extraArgs != "" {
-		args = append(args, "-e", fmt.Sprintf("LEASH_EXTRA_ARGS=%s", r.cfg.extraArgs))
+		value := fmt.Sprintf("LEASH_EXTRA_ARGS=%s", r.cfg.extraArgs)
+		args = append(args, "-e", value)
+		leashEnv = append(leashEnv, value)
 	}
 	if hash := strings.TrimSpace(r.workspaceHash); hash != "" {
-		args = append(args, "-e", fmt.Sprintf("LEASH_WORKSPACE_HASH=%s", hash))
+		value := fmt.Sprintf("LEASH_WORKSPACE_HASH=%s", hash)
+		args = append(args, "-e", value)
+		leashEnv = append(leashEnv, value)
 	}
 	if session := strings.TrimSpace(r.sessionID); session != "" {
-		args = append(args, "-e", fmt.Sprintf("LEASH_SESSION_ID=%s", session))
+		value := fmt.Sprintf("LEASH_SESSION_ID=%s", session)
+		args = append(args, "-e", value)
+		leashEnv = append(leashEnv, value)
 	}
 	for _, env := range r.opts.envVars {
 		args = append(args, "-e", env)
+		leashEnv = append(leashEnv, env)
 	}
 
 	args = append(args, r.cfg.leashImage, "--cgroup", cgroupPath)
-	return runCommand(ctx, "docker", args...)
+	r.logContainerConfig("leash", leashMounts, leashEnv)
+	return r.runDocker(ctx, args...)
+}
+
+func (r *runner) logContainerConfig(role string, mounts, env []string) {
+	if r == nil || !r.verbose {
+		return
+	}
+	mounts = uniqueStrings(mounts)
+	env = sanitizeEnvKeys(env)
+	line := fmt.Sprintf("event=runner.container-config role=%s mounts=%s env=%s", role, formatList(mounts), formatList(env))
+	if r != nil && r.logger != nil {
+		r.logger.Print(line)
+		return
+	}
+	log.Print(line)
+}
+
+func (r *runner) logPrivateDirEvent(event string, fields map[string]string) {
+	if r == nil || !r.verbose {
+		return
+	}
+	if fields == nil {
+		fields = map[string]string{}
+	}
+	keys := make([]string, 0, len(fields))
+	for k := range fields {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	b.WriteString("event=")
+	b.WriteString(event)
+	for _, k := range keys {
+		b.WriteByte(' ')
+		b.WriteString(k)
+		b.WriteByte('=')
+		b.WriteString(strconv.Quote(fields[k]))
+	}
+	line := b.String()
+	if r.logger != nil {
+		r.logger.Print(line)
+		return
+	}
+	log.Print(line)
+}
+
+func uniqueStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			continue
+		}
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func sanitizeEnvKeys(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			continue
+		}
+		if idx := strings.IndexRune(v, '='); idx != -1 {
+			v = strings.TrimSpace(v[:idx])
+		}
+		if v == "" {
+			continue
+		}
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func formatList(items []string) string {
+	if len(items) == 0 {
+		return "[]"
+	}
+	encoded := make([]string, len(items))
+	for i, item := range items {
+		encoded[i] = strconv.Quote(item)
+	}
+	return "[" + strings.Join(encoded, ", ") + "]"
 }
 
 func (r *runner) waitForFile(path string, attempts int, delay time.Duration) error {
@@ -1951,10 +2199,12 @@ func (r *runner) waitForBootstrap(ctx context.Context) error {
 
 	for {
 		if _, err := os.Stat(marker); err == nil {
-			if info := describeBootstrapMarker(marker); info != "" {
-				fmt.Printf("Bootstrap complete (%s)\n", info)
-			} else {
-				fmt.Println("Bootstrap complete.")
+			if r.verbose {
+				if info := describeBootstrapMarker(marker); info != "" {
+					fmt.Printf("Bootstrap complete (%s)\n", info)
+				} else {
+					fmt.Println("Bootstrap complete.")
+				}
 			}
 			return nil
 		}
@@ -2251,6 +2501,11 @@ func (r *runner) stopContainers(ctx context.Context) error {
 			_ = os.RemoveAll(r.cfg.shareDir)
 		}
 	}
+	if r.cfg.privateDir != "" {
+		if r.cfg.privateDirCreated || strings.HasPrefix(r.cfg.privateDir, r.cfg.workDir+string(os.PathSeparator)) {
+			_ = os.RemoveAll(r.cfg.privateDir)
+		}
+	}
 	if r.cfg.workDirIsTemp && r.cfg.workDir != "" {
 		if err := os.RemoveAll(r.cfg.workDir); err != nil {
 			r.debugf("failed to remove work dir %s: %v", r.cfg.workDir, err)
@@ -2301,7 +2556,8 @@ func (r *runner) containerExists(ctx context.Context, name string) (bool, error)
 
 func (r *runner) discoverShareDir(ctx context.Context) string {
 	for _, name := range []string{r.cfg.targetContainer, r.cfg.leashContainer} {
-		out, err := commandOutput(ctx, "docker", "inspect", "--format", "{{range .Mounts}}{{if eq .Destination \"/leash\"}}{{.Source}}{{end}}{{end}}", name)
+		format := fmt.Sprintf("{{range .Mounts}}{{if eq .Destination %q}}{{.Source}}{{end}}{{end}}", leashPublicMount)
+		out, err := commandOutput(ctx, "docker", "inspect", "--format", format, name)
 		if err == nil {
 			candidate := strings.TrimSpace(out)
 			if candidate != "" {

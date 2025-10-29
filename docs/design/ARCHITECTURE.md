@@ -183,6 +183,36 @@ Both are mature, widely-deployed mandatory access control (MAC) systems. However
 - `internal/proxy/ca.go` - Dynamic certificate generation
 - `internal/proxy/rewrite.go` - Header rewriting rules
 
+#### Shared Volume Responsibilities
+
+- `/leash` (public, 0755) is bind-mounted into both the target and manager containers. It holds bootstrap markers (`bootstrap.ready`, `cgroup-path`), the `leash-entry-*` binaries, and the public CA material (`ca-cert.pem`) that the target installs into its trust store.
+- `/leash-private` (manager-only, 0700) is mounted exclusively into the Leash manager. The proxy persists the private CA key (`ca-key.pem`) here with file mode `0600`, preventing the target from reading or copying signing material.
+- The runner injects `LEASH_DIR=/leash` for all containers and `LEASH_PRIVATE_DIR=/leash-private` only for the manager. Darwin runtime mirrors this separation by staging a manager-private directory before a CA is loaded or generated.
+- Permission enforcement is strict: `internal/runner/runner.go` chmods the private mount to `0700`, `internal/proxy/ca.go` atomically writes both artifacts with the required modes, and `internal/leashd/runtime.go` refuses to start if `LEASH_PRIVATE_DIR` is missing or too permissive.
+
+```mermaid
+%% Leash volume layout highlighting public vs private custody
+flowchart LR
+    Host[/Host Filesystem/]
+    subgraph Volumes
+        Public[/`/leash`\npublic mount\nmode 0755/]
+        Private[/`/leash-private`\nmanager-only\nmode 0700/]
+    end
+    subgraph Containers
+        Target[Target Container]
+        Manager[Leash Manager]
+    end
+
+    Host --> Public
+    Host --> Private
+    Public --> Target
+    Public --> Manager
+    Private --> Manager
+    Manager -->|write 0644 `ca-cert.pem`| Public
+    Manager -->|write 0600 `ca-key.pem`| Private
+    Target -->|read cert only| Public
+```
+
 **Why MITM Proxy?**
 eBPF LSM `socket_connect` hook operates at L3/L4:
 - Sees IP address + port

@@ -251,8 +251,127 @@ when { resource in [ Dir::"/" ] };`))
 	}
 }
 
+func TestRunnerPrivateMountIsolation(t *testing.T) {
+	skipUnlessE2E(t)
+
+	bin := ensureLeashBinary(t)
+	shareDir := t.TempDir()
+	policyPath := filepath.Join(t.TempDir(), "policy.cedar")
+	mustWrite(t, policyPath, []byte(`permit (principal, action == Action::"ProcessLaunch", resource)
+when { resource in [ Process::"/bin/sh" ] };`))
+
+	targetName := fmt.Sprintf("leash-e2e-target-%d", time.Now().UnixNano())
+	leashName := fmt.Sprintf("leash-e2e-manager-%d", time.Now().UnixNano())
+
+	cmd := exec.Command("timeout", "135", bin, "--", "sleep", "40")
+	cmd.Env = append(os.Environ(),
+		"TARGET_CONTAINER="+targetName,
+		"LEASH_CONTAINER="+leashName,
+		"LEASH_SHARE_DIR="+shareDir,
+		"LEASH_POLICY_FILE="+policyPath,
+		"LEASH_BOOTSTRAP_TIMEOUT=30s",
+	)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("failed to start leash runner: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
+	}
+
+	defer func() {
+		_ = cmd.Process.Signal(os.Interrupt)
+		done := make(chan error, 1)
+		go func() { done <- cmd.Wait() }()
+		select {
+		case <-time.After(15 * time.Second):
+			_ = cmd.Process.Kill()
+		case <-done:
+		}
+		dockerRmForced(t, targetName, leashName)
+	}()
+
+	waitForContainerRunning(t, targetName, 60*time.Second)
+	waitForContainerRunning(t, leashName, 60*time.Second)
+
+	bootstrapMarker := filepath.Join(shareDir, entrypoint.BootstrapReadyFileName)
+	waitForHostFile(t, bootstrapMarker, 30*time.Second)
+
+	envOutput := dockerExecOutput(t, targetName, "env")
+	if strings.Contains(envOutput, "LEASH_PRIVATE_DIR=") {
+		t.Fatalf("target container unexpectedly received LEASH_PRIVATE_DIR env; env=%q", envOutput)
+	}
+	if !strings.Contains(envOutput, "LEASH_DIR=/leash") {
+		t.Fatalf("target container missing LEASH_DIR env; env=%q", envOutput)
+	}
+
+	if exitCode := dockerExecExitCode(t, targetName, "sh", "-c", "test -d /leash-private"); exitCode == 0 {
+		t.Fatalf("expected /leash-private to be absent from target container")
+	}
+	if exitCode := dockerExecExitCode(t, targetName, "sh", "-c", "test -f /leash/ca-key.pem"); exitCode == 0 {
+		t.Fatalf("expected /leash/ca-key.pem to be inaccessible in target container")
+	}
+
+	if exitCode := dockerExecExitCode(t, leashName, "sh", "-c", "test -f /leash-private/ca-key.pem"); exitCode != 0 {
+		t.Fatalf("manager container missing private key; exit=%d", exitCode)
+	}
+
+	if exitCode := dockerExecExitCode(t, targetName, "curl", "-sS", "https://example.com", "-o", "/dev/null"); exitCode != 0 {
+		t.Fatalf("curl inside target container failed; exit=%d", exitCode)
+	}
+
+	waitForManagerLog(t, leashName, "event=http.request", 30*time.Second)
+}
+
+func TestDaemonFailsWhenPrivateDirIsNotDirectory(t *testing.T) {
+	skipUnlessE2E(t)
+
+	bin := ensureLeashBinary(t)
+
+	shareDir := t.TempDir()
+	mustWrite(t, filepath.Join(shareDir, entrypoint.ReadyFileName), []byte("1\n"))
+
+	privateFile := filepath.Join(t.TempDir(), "private-file")
+	mustWrite(t, privateFile, []byte("nope"))
+
+	cgroupDir := filepath.Join(t.TempDir(), "cgroup")
+	mustCreateDir(t, cgroupDir)
+	mustWrite(t, filepath.Join(cgroupDir, "cgroup.controllers"), []byte("memory\n"))
+
+	policyPath := filepath.Join(t.TempDir(), "policy.cedar")
+	mustWrite(t, policyPath, []byte(`permit (principal, action == Action::"FileOpen", resource)
+when { resource in [ Dir::"/" ] };`))
+
+	cmd, stdout, stderr := startDaemon(t, bin, daemonConfig{
+		shareDir:   shareDir,
+		privateDir: privateFile,
+		cgroupDir:  cgroupDir,
+		policyPath: policyPath,
+		listenAddr: ":" + freePort(t),
+		proxyPort:  freePort(t),
+		timeout:    5 * time.Second,
+	})
+
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+
+	select {
+	case <-time.After(15 * time.Second):
+		terminateProcess(t, cmd, stdout, stderr)
+		t.Fatalf("daemon did not exit despite invalid private dir; stdout=%s stderr=%s", stdout.String(), stderr.String())
+	case err := <-done:
+		if err == nil {
+			t.Fatalf("expected daemon to fail when private dir is file; stdout=%s stderr=%s", stdout.String(), stderr.String())
+		}
+		if !strings.Contains(stderr.String(), "LEASH_PRIVATE_DIR") {
+			t.Fatalf("expected stderr to mention LEASH_PRIVATE_DIR; stderr=%s", stderr.String())
+		}
+	}
+}
+
 type daemonConfig struct {
 	shareDir   string
+	privateDir string
 	cgroupDir  string
 	policyPath string
 	listenAddr string
@@ -262,6 +381,14 @@ type daemonConfig struct {
 
 func startDaemon(t *testing.T, bin string, cfg daemonConfig) (*exec.Cmd, *bytes.Buffer, *bytes.Buffer) {
 	t.Helper()
+
+	if cfg.privateDir == "" {
+		dir := t.TempDir()
+		if err := os.Chmod(dir, 0o700); err != nil {
+			t.Fatalf("failed to chmod private dir: %v", err)
+		}
+		cfg.privateDir = dir
+	}
 
 	logPath := filepath.Join(t.TempDir(), "daemon.log")
 	cmd := exec.Command(
@@ -275,6 +402,7 @@ func startDaemon(t *testing.T, bin string, cfg daemonConfig) (*exec.Cmd, *bytes.
 
 	env := append(os.Environ(),
 		"LEASH_DIR="+cfg.shareDir,
+		"LEASH_PRIVATE_DIR="+cfg.privateDir,
 		"LEASH_BOOTSTRAP_SKIP_ENFORCE=1",
 		"LEASH_E2E=1",
 		fmt.Sprintf("LEASH_BOOTSTRAP_TIMEOUT=%s", cfg.timeout),
@@ -484,4 +612,88 @@ func missingBundleFiles(root string) []string {
 		}
 	}
 	return missing
+}
+
+func runDockerCommand(t *testing.T, timeout time.Duration, args ...string) ([]byte, int, error) {
+	t.Helper()
+	seconds := int(timeout / time.Second)
+	if seconds <= 0 {
+		seconds = 1
+	}
+	cmdArgs := append([]string{fmt.Sprintf("%d", seconds), "docker"}, args...)
+	cmd := exec.Command("timeout", cmdArgs...)
+	output, err := cmd.CombinedOutput()
+	exitCode := 0
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		} else {
+			return output, -1, err
+		}
+	}
+	return output, exitCode, err
+}
+
+func dockerExecOutput(t *testing.T, container string, args ...string) string {
+	cmdArgs := append([]string{"exec", container}, args...)
+	out, exit, err := runDockerCommand(t, 30*time.Second, cmdArgs...)
+	if err != nil && exit != 0 {
+		t.Fatalf("docker exec %s failed: %v (output=%s)", strings.Join(cmdArgs, " "), err, string(out))
+	}
+	return string(out)
+}
+
+func dockerExecExitCode(t *testing.T, container string, args ...string) int {
+	cmdArgs := append([]string{"exec", container}, args...)
+	_, exit, err := runDockerCommand(t, 30*time.Second, cmdArgs...)
+	if err != nil && exit == -1 {
+		t.Fatalf("docker exec %s returned error: %v", strings.Join(cmdArgs, " "), err)
+	}
+	return exit
+}
+
+func dockerRmForced(t *testing.T, names ...string) {
+	if len(names) == 0 {
+		return
+	}
+	args := append([]string{"rm", "-f"}, names...)
+	_, _, _ = runDockerCommand(t, 30*time.Second, args...)
+}
+
+func waitForContainerRunning(t *testing.T, name string, timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		out, exit, err := runDockerCommand(t, 10*time.Second, "inspect", "-f", "{{.State.Status}}", name)
+		if err == nil && exit == 0 {
+			status := strings.TrimSpace(string(out))
+			if status == "running" {
+				return
+			}
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	t.Fatalf("container %s did not reach running state within %s", name, timeout)
+}
+
+func waitForHostFile(t *testing.T, path string, timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if info, err := os.Stat(path); err == nil && !info.IsDir() {
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for host file %s", path)
+}
+
+func waitForManagerLog(t *testing.T, container, needle string, timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		_, exit, _ := runDockerCommand(t, 10*time.Second, "exec", container, "sh", "-c", fmt.Sprintf("grep -q %q /log/events.log", needle))
+		if exit == 0 {
+			return
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %q in manager logs", needle)
 }

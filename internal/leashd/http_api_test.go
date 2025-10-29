@@ -16,6 +16,12 @@ import (
 	"github.com/strongdm/leash/internal/proxy"
 )
 
+func setupLeashDirs(t *testing.T) string {
+	t.Helper()
+	publicDir, _ := provisionLeashEnv(t)
+	return publicDir
+}
+
 type captureBroadcaster struct {
 	mu     sync.Mutex
 	events []struct {
@@ -174,23 +180,7 @@ func TestPoliciesPostJSONAccepts(t *testing.T) {
 func TestPersistPoliciesEmptyBodyUsesRuntimeCedar(t *testing.T) {
 	t.Parallel()
 
-	tmpDir := t.TempDir()
-	origLeashDir := os.Getenv("LEASH_DIR")
-	if err := os.Setenv("LEASH_DIR", tmpDir); err != nil {
-		t.Fatalf("failed to set LEASH_DIR: %v", err)
-	}
-	t.Cleanup(func() {
-		if origLeashDir == "" {
-			_ = os.Unsetenv("LEASH_DIR")
-		} else {
-			_ = os.Setenv("LEASH_DIR", origLeashDir)
-		}
-		if entries, err := os.ReadDir(tmpDir); err == nil {
-			for _, entry := range entries {
-				_ = os.RemoveAll(filepath.Join(tmpDir, entry.Name()))
-			}
-		}
-	})
+	tmpDir := setupLeashDirs(t)
 	policyPath := filepath.Join(tmpDir, "policies.cedar")
 
 	mux := http.NewServeMux()
@@ -225,23 +215,7 @@ func TestPersistPoliciesEmptyBodyUsesRuntimeCedar(t *testing.T) {
 func TestPoliciesPatchAddPersistEnforce(t *testing.T) {
 	t.Parallel()
 
-	tmpDir := t.TempDir()
-	origLeashDir := os.Getenv("LEASH_DIR")
-	if err := os.Setenv("LEASH_DIR", tmpDir); err != nil {
-		t.Fatalf("failed to set LEASH_DIR: %v", err)
-	}
-	t.Cleanup(func() {
-		if origLeashDir == "" {
-			_ = os.Unsetenv("LEASH_DIR")
-		} else {
-			_ = os.Setenv("LEASH_DIR", origLeashDir)
-		}
-		if entries, err := os.ReadDir(tmpDir); err == nil {
-			for _, entry := range entries {
-				_ = os.RemoveAll(filepath.Join(tmpDir, entry.Name()))
-			}
-		}
-	})
+	tmpDir := setupLeashDirs(t)
 	policyPath := filepath.Join(tmpDir, "policies.cedar")
 
 	mux := http.NewServeMux()
@@ -510,7 +484,7 @@ func TestAddPolicyFromActionDetectsConflict(t *testing.T) {
 func TestPoliciesPatchAddMCPSpecificTool(t *testing.T) {
 	t.Parallel()
 
-	tmpDir := t.TempDir()
+	tmpDir := setupLeashDirs(t)
 	policyPath := filepath.Join(tmpDir, "policies.cedar")
 
 	mux := http.NewServeMux()
@@ -558,7 +532,7 @@ func TestPoliciesPatchAddMCPSpecificTool(t *testing.T) {
 func TestAddPolicyFromActionMCPSpecificTool(t *testing.T) {
 	t.Parallel()
 
-	tmpDir := t.TempDir()
+	tmpDir := setupLeashDirs(t)
 	policyPath := filepath.Join(tmpDir, "policies.cedar")
 
 	mux := http.NewServeMux()
