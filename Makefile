@@ -37,7 +37,7 @@ UI_CACHE_DIR ?= $(HOME)/.cache/leash/ui
 .DEFAULT_GOAL := default
 
 .PHONY: default
-default: docker-ui docker-leash build ## Default Makefile task: builds UI, Docker images, and binaries
+default: build-ui docker-leash build ## Default Makefile task: builds UI, Docker images, and binaries
 
 .PHONY: help
 help: ## List common make targets
