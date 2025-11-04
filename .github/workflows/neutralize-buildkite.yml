@@ -1,0 +1,43 @@
+name: Neutralize Buildkite Status
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  neutralize:
+    name: mark buildkite/leash success
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set status on push
+        if: github.event_name == 'push'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SHA="${{ github.sha }}"
+          REPO="${{ github.repository }}"
+          curl -fsSL \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -X POST \
+            -d '{"state":"success","context":"buildkite/leash","description":"Buildkite disabled for this repo","target_url":"https://github.com/'"${REPO}"'"}' \
+            "https://api.github.com/repos/${REPO}/statuses/${SHA}"
+
+      - name: Set status on pull_request
+        if: github.event_name == 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SHA="${{ github.event.pull_request.head.sha }}"
+          REPO="${{ github.repository }}"
+          curl -fsSL \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -X POST \
+            -d '{"state":"success","context":"buildkite/leash","description":"Buildkite disabled for this repo","target_url":"https://github.com/'"${REPO}"'"}' \
+            "https://api.github.com/repos/${REPO}/statuses/${SHA}"
+
