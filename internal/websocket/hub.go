@@ -272,10 +272,14 @@ type WebSocketHub struct {
 	bulkMaxBytes  int
 }
 
-const writeDeadline = 5 * time.Second
-const heartbeatInterval = 10 * time.Second
-const pongWait = 60 * time.Second
-const pingInterval = 30 * time.Second
+const (
+	writeDeadline     = 5 * time.Second
+	heartbeatInterval = 10 * time.Second
+	pongWait          = 30 * time.Second
+	pingInterval      = 30 * time.Second
+)
+
+const clientSendBufferSize = 256 * 100
 
 var upgrader = gws.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
@@ -295,6 +299,15 @@ type client struct {
 type clientSend struct {
 	clientID string
 	payload  []byte
+}
+
+func (c *client) isClosedLocked() bool {
+	select {
+	case <-c.closed:
+		return true
+	default:
+		return false
+	}
 }
 
 // ClientMessage represents an inbound message from a websocket client.
@@ -374,6 +387,28 @@ func (h *WebSocketHub) getClient(id string) *client {
 }
 
 func (h *WebSocketHub) enqueue(client *client, payload []byte) {
+	if client == nil {
+		return
+	}
+
+	client.closeMu.Lock()
+	defer client.closeMu.Unlock()
+
+	if client.isClosedLocked() {
+		return
+	}
+
+	select {
+	case client.send <- payload:
+		return
+	default:
+	}
+
+	select {
+	case <-client.send:
+	default:
+	}
+
 	select {
 	case client.send <- payload:
 	default:
@@ -623,7 +658,7 @@ func newClient(h *WebSocketHub, conn *gws.Conn) *client {
 	c := &client{
 		id:     uuid.NewString(),
 		conn:   conn,
-		send:   make(chan []byte, 256),
+		send:   make(chan []byte, clientSendBufferSize),
 		hub:    h,
 		closed: make(chan struct{}),
 	}
