@@ -39,6 +39,7 @@ import (
 )
 
 const (
+	defaultProxyPort        = "18000"
 	defaultBootstrapTimeout = 2 * time.Minute
 )
 
@@ -164,7 +165,7 @@ func parseConfig(args []string) (*runtimeConfig, error) {
 	}
 	policyPath := fs.String("policy", defaultPolicyPath, "Cedar policy file path")
 
-	proxyPort := fs.String("proxy-port", "18000", "Proxy port")
+	proxyPort := fs.String("proxy-port", defaultProxyPort, "Proxy port")
 	listenFlag := &stringFlag{}
 	fs.Var(listenFlag, "listen", "Serve Control UI and API on the provided address (e.g. :18080, 127.0.0.1:18080). Leave blank to disable.")
 	fs.Var(listenFlag, "l", "Alias for --listen")
@@ -726,7 +727,7 @@ var nftBinaryName = "nft"
 // applyNetworkRules attempts nftables first (v4+v6) then falls back to iptables/ip6tables.
 func applyNetworkRules(proxyPort, controlPort string) error {
 	if proxyPort == "" {
-		proxyPort = "18000"
+		proxyPort = defaultProxyPort
 	}
 	// Try nftables first if available
 	if _, err := findNft(); err == nil {
@@ -742,7 +743,7 @@ func applyNetworkRules(proxyPort, controlPort string) error {
 
 func applyIptablesRules(proxyPort, controlPort string) error {
 	if proxyPort == "" {
-		proxyPort = "18000"
+		proxyPort = defaultProxyPort
 	}
 	if _, err := findIptables(); err != nil {
 		return err
@@ -801,7 +802,7 @@ func findIptables() (string, error) {
 // applyNftablesRules runs the embedded nftables script to configure v4+v6.
 func applyNftablesRules(proxyPort, controlPort string) error {
 	if proxyPort == "" {
-		proxyPort = "18000"
+		proxyPort = defaultProxyPort
 	}
 	if _, err := findNft(); err != nil {
 		return err

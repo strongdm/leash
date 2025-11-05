@@ -82,7 +82,7 @@ func TestLaunchCommandsUseSplitMounts(t *testing.T) {
 			targetContainer:  "leash-target-123",
 			leashContainer:   "leash-manager-123",
 			callerDir:        shareDir,
-			proxyPort:        "18000",
+			proxyPort:        defaultProxyPort,
 			bootstrapTimeout: 30 * time.Second,
 			listenCfg:        listen.Default(),
 		},

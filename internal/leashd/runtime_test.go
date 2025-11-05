@@ -138,7 +138,7 @@ func TestPreFlightMissingPolicy(t *testing.T) {
 	cgroupPath := createCgroupStub(t, true)
 	cfg := &runtimeConfig{
 		PolicyPath: policyPath,
-		ProxyPort:  "18000",
+		ProxyPort:  defaultProxyPort,
 		CgroupPath: cgroupPath,
 	}
 	if err := preFlight(cfg); err != nil {
@@ -163,7 +163,7 @@ func TestPreFlightInvalidCedar(t *testing.T) {
 	cgroupPath := createCgroupStub(t, true)
 	cfg := &runtimeConfig{
 		PolicyPath: policyPath,
-		ProxyPort:  "18000",
+		ProxyPort:  defaultProxyPort,
 		CgroupPath: cgroupPath,
 	}
 	if err := preFlight(cfg); err == nil || !strings.Contains(err.Error(), "invalid Cedar policy") {
@@ -182,7 +182,7 @@ func TestPreFlightUnreadablePolicy(t *testing.T) {
 	cgroupPath := createCgroupStub(t, true)
 	cfg := &runtimeConfig{
 		PolicyPath: policyPath,
-		ProxyPort:  "18000",
+		ProxyPort:  defaultProxyPort,
 		CgroupPath: cgroupPath,
 	}
 	if err := preFlight(cfg); err == nil || !strings.Contains(err.Error(), "invalid Cedar policy") {
@@ -207,7 +207,7 @@ func TestPreFlightRequiresPrivateDir(t *testing.T) {
 	cgroupPath := createCgroupStub(t, true)
 	cfg := &runtimeConfig{
 		PolicyPath: policyPath,
-		ProxyPort:  "18000",
+		ProxyPort:  defaultProxyPort,
 		CgroupPath: cgroupPath,
 	}
 
@@ -229,7 +229,7 @@ func TestPreFlightRejectsWorldReadableKey(t *testing.T) {
 	cgroupPath := createCgroupStub(t, true)
 	cfg := &runtimeConfig{
 		PolicyPath: policyPath,
-		ProxyPort:  "18000",
+		ProxyPort:  defaultProxyPort,
 		CgroupPath: cgroupPath,
 	}
 
@@ -255,7 +255,7 @@ func TestPreFlightLogsMountSummary(t *testing.T) {
 	cgroupPath := createCgroupStub(t, true)
 	cfg := &runtimeConfig{
 		PolicyPath: policyPath,
-		ProxyPort:  "18000",
+		ProxyPort:  defaultProxyPort,
 		CgroupPath: cgroupPath,
 	}
 
@@ -306,7 +306,7 @@ func TestPreFlightValidConfig(t *testing.T) {
 	cfg := &runtimeConfig{
 		PolicyPath: policyPath,
 		LogPath:    logPath,
-		ProxyPort:  "18000",
+		ProxyPort:  defaultProxyPort,
 		CgroupPath: cgroupPath,
 	}
 	if err := preFlight(cfg); err != nil {
@@ -324,7 +324,7 @@ func TestPreFlightInvalidCgroup(t *testing.T) {
 	cgroupDir := createCgroupStub(t, false)
 	cfg := &runtimeConfig{
 		PolicyPath: policyPath,
-		ProxyPort:  "18000",
+		ProxyPort:  defaultProxyPort,
 		CgroupPath: cgroupDir,
 	}
 	if err := preFlight(cfg); err == nil || !strings.Contains(err.Error(), "cgroup path") {
@@ -415,7 +415,7 @@ func TestPreFlightMissingIptables(t *testing.T) {
 	cfg := &runtimeConfig{
 		PolicyPath: policyPath,
 		LogPath:    logPath,
-		ProxyPort:  "18000",
+		ProxyPort:  defaultProxyPort,
 		CgroupPath: cgroupPath,
 	}
 

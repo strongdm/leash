@@ -114,7 +114,10 @@ func Main(args []string) error {
 	return rt.Run()
 }
 
-const defaultLeashCLIPath = "/Applications/Leash.app/Contents/Resources/leashcli"
+const (
+	defaultProxyPort    = "18000"
+	defaultLeashCLIPath = "/Applications/Leash.app/Contents/Resources/leashcli"
+)
 
 func runExec(args []string) error {
 	if len(args) == 0 {
@@ -222,7 +225,7 @@ func parseConfig(args []string) (*runtimeConfig, error) {
 	}
 	policyPath := fs.String("policy", defaultPolicyPath, "Policy file path")
 
-	proxyPort := fs.String("proxy-port", "18000", "Proxy port")
+	proxyPort := fs.String("proxy-port", defaultProxyPort, "Proxy port")
 	wsPort := fs.String("ws-port", "18080", "WebSocket server port")
 
 	serveAddr := fs.String("serve", "", "Serve Control UI and API on bind address (e.g. :18080, 0.0.0.0:8127)")
@@ -346,7 +349,7 @@ func preFlight(cfg *runtimeConfig) error {
 
 	if !cfg.SkipCgroup {
 		if strings.TrimSpace(cfg.ProxyPort) == "" {
-			cfg.ProxyPort = "18000"
+			cfg.ProxyPort = defaultProxyPort
 		}
 		port, err := strconv.Atoi(cfg.ProxyPort)
 		if err != nil || port <= 0 || port > 65535 {
@@ -1406,7 +1409,7 @@ func formatCedarErrorForCLI(detail *cedarutil.ErrorDetail) string {
 
 func applyIptablesRules(port string) error {
 	if port == "" {
-		port = "18000"
+		port = defaultProxyPort
 	}
 	if _, err := findIptables(); err != nil {
 		return err

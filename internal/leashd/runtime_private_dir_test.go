@@ -74,7 +74,7 @@ func TestPreFlightFailsWhenPrivateDirMissing(t *testing.T) {
 	}
 	cfg := &runtimeConfig{
 		PolicyPath: filepath.Join(base, "policy.cedar"),
-		ProxyPort:  "18000",
+		ProxyPort:  defaultProxyPort,
 		CgroupPath: cgroupDir,
 	}
 	if err := preFlight(cfg); err == nil || !containsAll(err.Error(), "LEASH_PRIVATE_DIR") {
@@ -123,7 +123,7 @@ func setupRuntimeEnv(t *testing.T, includeBadKey bool) (*runtimeConfig, func()) 
 
 	cfg := &runtimeConfig{
 		PolicyPath: filepath.Join(base, "policy.cedar"),
-		ProxyPort:  "18000",
+		ProxyPort:  defaultProxyPort,
 		CgroupPath: cgroupDir,
 	}
 
