@@ -5,6 +5,7 @@ import DataSourceControls from "@/components/nav/data-source-controls";
 import SingleHeader from "@/components/single/header";
 import PromptBanner from "@/components/single/prompt-banner";
 import CedarEditorCollapsible from "@/components/policy/cedar-editor-collapsible";
+import { SecretsPane } from "@/components/secrets/secrets-pane";
 import { ActionsStream } from "@/components/actions/stream";
 import PolicyBlockCard from "@/components/policy/policy-block-card";
 import { fetchPolicyLines, type PolicyLine } from "@/lib/policy/api";
@@ -52,6 +53,7 @@ function ConsoleContent() {
     <SingleProvider>
       <section className="space-y-4">
         <CedarEditorCollapsible defaultOpen={false} />
+        <SecretsPane />
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
           <div className="order-2 lg:order-1 lg:col-span-2">
             <ActionsStream onPolicyMutated={loadLines} />

@@ -149,6 +149,9 @@ type runner struct {
 	mountState    *mountState
 	sessionID     string
 	workspaceHash string
+
+	targetNameAttempt int
+	leashNameAttempt  int
 }
 
 // ExitCodeError propagates the exact exit status produced by the leashed command
@@ -1256,6 +1259,10 @@ func (r *runner) startContainers(ctx context.Context) error {
 }
 
 func (r *runner) assignContainerNames(ctx context.Context) error {
+	return r.assignContainerNamesFrom(ctx, 0)
+}
+
+func (r *runner) assignContainerNamesFrom(ctx context.Context, start int) error {
 	baseTarget := r.cfg.targetContainerBase
 	if strings.TrimSpace(baseTarget) == "" {
 		baseTarget = r.cfg.targetContainer
@@ -1266,7 +1273,7 @@ func (r *runner) assignContainerNames(ctx context.Context) error {
 	}
 
 	const maxAttempts = 1000
-	for attempt := 0; attempt < maxAttempts; attempt++ {
+	for attempt := start; attempt < maxAttempts; attempt++ {
 		targetCandidate := containerNameWithSuffix(baseTarget, attempt)
 		leashCandidate := containerNameWithSuffix(baseLeash, attempt)
 
@@ -1283,12 +1290,17 @@ func (r *runner) assignContainerNames(ctx context.Context) error {
 			continue
 		}
 
-		if attempt > 0 && r.logger != nil {
+		if attempt > start && r.logger != nil {
 			r.logger.Printf("Container names %s/%s already in use; selected %s/%s instead.", baseTarget, baseLeash, targetCandidate, leashCandidate)
 		}
 
+		r.targetNameAttempt = attempt
+		r.leashNameAttempt = attempt
 		r.cfg.targetContainer = targetCandidate
 		r.cfg.leashContainer = leashCandidate
+		if start > 0 && r.logger != nil {
+			r.logger.Printf("Retrying with container names %s/%s after conflict.", targetCandidate, leashCandidate)
+		}
 		return nil
 	}
 
@@ -1407,6 +1419,10 @@ func (r *runner) bumpListenPort(ctx context.Context, maxAttempts int) error {
 }
 
 func isPortConflictError(err error) bool {
+	return isPortBindConflict(err) || isContainerNameConflict(err)
+}
+
+func isPortBindConflict(err error) bool {
 	if err == nil {
 		return false
 	}
@@ -1423,6 +1439,14 @@ func isPortConflictError(err error) bool {
 	default:
 		return false
 	}
+}
+
+func isContainerNameConflict(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "container name") && strings.Contains(msg, "already in use")
 }
 
 // Additional helper methods will be defined below.
@@ -1443,11 +1467,19 @@ func (r *runner) ensureNotRunning(ctx context.Context) error {
 		return fmt.Errorf("error: containers already running (target='%s', leash='%s').\nRun: docker rm -f %s %s   to stop them, then try again.", r.cfg.targetContainer, r.cfg.leashContainer, r.cfg.targetContainer, r.cfg.leashContainer)
 	}
 
-	if exists, _ := r.containerExists(ctx, r.cfg.targetContainer); exists {
-		_ = runCommand(ctx, "docker", "rm", "-f", r.cfg.targetContainer)
+	if exists, err := r.containerExists(ctx, r.cfg.targetContainer); err != nil {
+		return err
+	} else if exists {
+		if !r.cleanupContainer(ctx, r.cfg.targetContainer) {
+			return fmt.Errorf("failed to remove existing container %s", r.cfg.targetContainer)
+		}
 	}
-	if exists, _ := r.containerExists(ctx, r.cfg.leashContainer); exists {
-		_ = runCommand(ctx, "docker", "rm", "-f", r.cfg.leashContainer)
+	if exists, err := r.containerExists(ctx, r.cfg.leashContainer); err != nil {
+		return err
+	} else if exists {
+		if !r.cleanupContainer(ctx, r.cfg.leashContainer) {
+			return fmt.Errorf("failed to remove existing container %s", r.cfg.leashContainer)
+		}
 	}
 	return nil
 }
@@ -1807,150 +1839,190 @@ func (r *runner) launchTargetContainer(ctx context.Context, stopSignal string) e
 	}
 	entryName := fmt.Sprintf("leash-entry-linux-%s", arch)
 
-	args := []string{
-		"run", "--pull=missing", "-d",
-		"--name", r.cfg.targetContainer,
-		"--entrypoint", filepath.Join(leashPublicMount, entryName),
-		"--cgroupns", "host",
-	}
-	if !r.cfg.listenCfg.Disable {
-		if publish := r.cfg.listenCfg.DockerPublish(); publish != "" {
-			args = append(args, "-p", publish)
-		}
-	}
-	// Append requested port publishes
-	for _, ps := range r.opts.publishes {
-		args = append(args, "-p", ps.toDockerArg())
-	}
-	targetMounts := []string{leashPublicMount, r.cfg.callerDir}
-	targetEnv := []string{
-		fmt.Sprintf("LEASH_DIR=%s", leashPublicMount),
-		fmt.Sprintf("LEASH_ENTRY_READY_FILE=%s/%s", leashPublicMount, entrypoint.ReadyFileName),
-		fmt.Sprintf("LEASH_ENTRY_STOP_SIGNAL=%s", stopSignal),
-		"LEASH_ENTRY_KILL_SIGNAL=SIGKILL",
-		"NODE_OPTIONS=--use-openssl-ca",
-	}
-	args = append(args,
-		"-v", fmt.Sprintf("%s:%s", r.cfg.shareDir, leashPublicMount),
-		"-v", fmt.Sprintf("%s:%s", r.cfg.callerDir, r.cfg.callerDir),
-		"-w", r.cfg.callerDir,
-		"-e", fmt.Sprintf("LEASH_DIR=%s", leashPublicMount),
-		"-e", fmt.Sprintf("LEASH_ENTRY_READY_FILE=%s/%s", leashPublicMount, entrypoint.ReadyFileName),
-		"-e", fmt.Sprintf("LEASH_ENTRY_STOP_SIGNAL=%s", stopSignal),
-		"-e", "LEASH_ENTRY_KILL_SIGNAL=SIGKILL",
-		"-e", "NODE_OPTIONS=--use-openssl-ca",
-	)
-	for _, env := range r.opts.envVars {
-		args = append(args, "-e", env)
-		targetEnv = append(targetEnv, env)
-	}
-	if hash := strings.TrimSpace(r.workspaceHash); hash != "" {
-		value := fmt.Sprintf("LEASH_WORKSPACE_HASH=%s", hash)
-		args = append(args, "-e", value)
-		targetEnv = append(targetEnv, value)
-	}
-	if session := strings.TrimSpace(r.sessionID); session != "" {
-		value := fmt.Sprintf("LEASH_SESSION_ID=%s", session)
-		args = append(args, "-e", value)
-		targetEnv = append(targetEnv, value)
-	}
-	existingContainers := make(map[string]struct{})
-	existingPairs := make(map[string]struct{})
-	for _, volume := range r.opts.volumes {
-		if host, container, ok := volumeHostContainer(volume); ok {
-			key := volumePairKey(host, container)
-			existingPairs[key] = struct{}{}
-			existingContainers[container] = struct{}{}
-			targetMounts = append(targetMounts, container)
-			continue
-		}
-		if dest := volumeContainerPath(volume); dest != "" {
-			existingContainers[dest] = struct{}{}
-			targetMounts = append(targetMounts, dest)
-		}
-	}
-	if r.mountState != nil {
-		for _, mount := range r.mountState.mounts {
-			host := filepath.Clean(mount.Host)
-			container := filepath.Clean(mount.Container)
-			key := volumePairKey(host, container)
-			label := strings.TrimSpace(mount.Name)
-			if label == "" {
-				label = strings.TrimSpace(r.mountState.command)
-			}
+	const launchRetryLimit = 20
+	const portRetryLimit = 100
 
-			if _, exists := existingPairs[key]; exists {
-				r.logger.Printf("Mount %s -> %s already configured; skipping duplicate.", host, container)
+	for attempt := 0; attempt < launchRetryLimit; attempt++ {
+		args := []string{
+			"run", "--pull=missing", "-d",
+			"--name", r.cfg.targetContainer,
+			"--entrypoint", filepath.Join(leashPublicMount, entryName),
+			"--cgroupns", "host",
+		}
+		if !r.cfg.listenCfg.Disable {
+			if publish := r.cfg.listenCfg.DockerPublish(); publish != "" {
+				args = append(args, "-p", publish)
+			}
+		}
+		for _, ps := range r.opts.publishes {
+			args = append(args, "-p", ps.toDockerArg())
+		}
+
+		targetMounts := []string{leashPublicMount, r.cfg.callerDir}
+		targetEnv := []string{
+			fmt.Sprintf("LEASH_DIR=%s", leashPublicMount),
+			fmt.Sprintf("LEASH_ENTRY_READY_FILE=%s/%s", leashPublicMount, entrypoint.ReadyFileName),
+			fmt.Sprintf("LEASH_ENTRY_STOP_SIGNAL=%s", stopSignal),
+			"LEASH_ENTRY_KILL_SIGNAL=SIGKILL",
+			"NODE_OPTIONS=--use-openssl-ca",
+		}
+		args = append(args,
+			"-v", fmt.Sprintf("%s:%s", r.cfg.shareDir, leashPublicMount),
+			"-v", fmt.Sprintf("%s:%s", r.cfg.callerDir, r.cfg.callerDir),
+			"-w", r.cfg.callerDir,
+			"-e", fmt.Sprintf("LEASH_DIR=%s", leashPublicMount),
+			"-e", fmt.Sprintf("LEASH_ENTRY_READY_FILE=%s/%s", leashPublicMount, entrypoint.ReadyFileName),
+			"-e", fmt.Sprintf("LEASH_ENTRY_STOP_SIGNAL=%s", stopSignal),
+			"-e", "LEASH_ENTRY_KILL_SIGNAL=SIGKILL",
+			"-e", "NODE_OPTIONS=--use-openssl-ca",
+		)
+		for _, env := range r.opts.envVars {
+			args = append(args, "-e", env)
+			targetEnv = append(targetEnv, env)
+		}
+		if hash := strings.TrimSpace(r.workspaceHash); hash != "" {
+			value := fmt.Sprintf("LEASH_WORKSPACE_HASH=%s", hash)
+			args = append(args, "-e", value)
+			targetEnv = append(targetEnv, value)
+		}
+		if session := strings.TrimSpace(r.sessionID); session != "" {
+			value := fmt.Sprintf("LEASH_SESSION_ID=%s", session)
+			args = append(args, "-e", value)
+			targetEnv = append(targetEnv, value)
+		}
+
+		existingContainers := make(map[string]struct{})
+		existingPairs := make(map[string]struct{})
+		for _, volume := range r.opts.volumes {
+			if host, container, ok := volumeHostContainer(volume); ok {
+				key := volumePairKey(host, container)
+				existingPairs[key] = struct{}{}
+				existingContainers[container] = struct{}{}
+				targetMounts = append(targetMounts, container)
 				continue
 			}
-			if _, exists := existingContainers[container]; exists {
-				r.logger.Printf("Mount %s -> %s already configured; skipping duplicate.", host, container)
-				continue
+			if dest := volumeContainerPath(volume); dest != "" {
+				existingContainers[dest] = struct{}{}
+				targetMounts = append(targetMounts, dest)
 			}
+		}
+		if r.mountState != nil {
+			for _, mount := range r.mountState.mounts {
+				host := filepath.Clean(mount.Host)
+				container := filepath.Clean(mount.Container)
+				key := volumePairKey(host, container)
+				label := strings.TrimSpace(mount.Name)
+				if label == "" {
+					label = strings.TrimSpace(r.mountState.command)
+				}
 
-			info, err := os.Stat(host)
-			if err != nil {
-				if os.IsNotExist(err) {
-					if label != "" {
-						r.logger.Printf("Warning: mount %s requested but %s does not exist; skipping.", label, host)
+				if _, exists := existingPairs[key]; exists {
+					r.logger.Printf("Mount %s -> %s already configured; skipping duplicate.", host, container)
+					continue
+				}
+				if _, exists := existingContainers[container]; exists {
+					r.logger.Printf("Mount %s -> %s already configured; skipping duplicate.", host, container)
+					continue
+				}
+
+				info, err := os.Stat(host)
+				if err != nil {
+					if os.IsNotExist(err) {
+						if label != "" {
+							r.logger.Printf("Warning: mount %s requested but %s does not exist; skipping.", label, host)
+						} else {
+							r.logger.Printf("Warning: mount requested for %s but %s does not exist; skipping.", container, host)
+						}
 					} else {
-						r.logger.Printf("Warning: mount requested for %s but %s does not exist; skipping.", container, host)
+						r.logger.Printf("Warning: failed to access %s: %v; skipping auto-mount.", host, err)
 					}
+					continue
+				}
+				switch mount.Kind {
+				case configstore.MountKindDirectory:
+					if !info.IsDir() {
+						r.logger.Printf("Warning: expected %s to be a directory; skipping auto-mount.", host)
+						continue
+					}
+				case configstore.MountKindFile:
+					if info.IsDir() {
+						r.logger.Printf("Warning: expected %s to be a file; skipping auto-mount.", host)
+						continue
+					}
+				case configstore.MountKindUnknown:
+					// No additional validation; defer to docker `-v` handling.
+				}
+
+				args = append(args, "-v", fmt.Sprintf("%s:%s:%s", host, container, mount.Mode))
+				existingPairs[key] = struct{}{}
+				existingContainers[container] = struct{}{}
+				targetMounts = append(targetMounts, container)
+				if label != "" {
+					r.logger.Printf("Auto-mounted %s (%s) -> %s (scope=%s)", host, label, container, mount.Scope)
 				} else {
-					r.logger.Printf("Warning: failed to access %s: %v; skipping auto-mount.", host, err)
+					r.logger.Printf("Auto-mounted %s -> %s (scope=%s)", host, container, mount.Scope)
 				}
-				continue
 			}
-			switch mount.Kind {
-			case configstore.MountKindDirectory:
-				if !info.IsDir() {
-					r.logger.Printf("Warning: expected %s to be a directory; skipping auto-mount.", host)
-					continue
-				}
-			case configstore.MountKindFile:
-				if info.IsDir() {
-					r.logger.Printf("Warning: expected %s to be a file; skipping auto-mount.", host)
-					continue
-				}
-			case configstore.MountKindUnknown:
-				// No additional validation; defer to docker `-v` handling.
+		}
+		for _, volume := range r.opts.volumes {
+			args = append(args, "-v", volume)
+			if dest := volumeContainerPath(volume); dest != "" {
+				targetMounts = append(targetMounts, dest)
+			}
+		}
+		args = append(args, r.cfg.targetImage)
+		r.logContainerConfig("target", targetMounts, targetEnv)
+
+		if err := r.runDocker(ctx, args...); err != nil {
+			if !r.cleanupContainer(ctx, r.cfg.targetContainer) {
+				return fmt.Errorf("failed to remove partial target container %s", r.cfg.targetContainer)
 			}
 
-			args = append(args, "-v", fmt.Sprintf("%s:%s:%s", host, container, mount.Mode))
-			existingPairs[key] = struct{}{}
-			existingContainers[container] = struct{}{}
-			targetMounts = append(targetMounts, container)
-			if label != "" {
-				r.logger.Printf("Auto-mounted %s (%s) -> %s (scope=%s)", host, label, container, mount.Scope)
+			nameConflict := isContainerNameConflict(err)
+			portConflict := isPortBindConflict(err)
+
+			if r.logger != nil {
+				r.logger.Printf("Target container launch failed (nameConflict=%t portConflict=%t): %v", nameConflict, portConflict, err)
+			}
+
+			if nameConflict {
+				if r.logger != nil {
+					r.logger.Printf("Container name %s already in use; selecting alternate name.", r.cfg.targetContainer)
+				}
+				if nameErr := r.assignContainerNamesFrom(ctx, r.targetNameAttempt+1); nameErr != nil {
+					return nameErr
+				}
+			}
+			if portConflict {
+				if r.logger != nil {
+					r.logger.Printf("Listen port %s unavailable; trying next port.", r.cfg.listenCfg.Port)
+				}
+				if bumpErr := r.bumpListenPort(ctx, portRetryLimit); bumpErr != nil {
+					return bumpErr
+				}
+			}
+			if nameConflict || portConflict {
+				continue
+			}
+
+			return err
+		}
+
+		for _, ps := range r.opts.publishes {
+			if ps.Proto == "udp" {
+				fmt.Printf("Forwarded %s:%s -> container:%s (udp)\n", ps.HostIP, ps.HostPort, ps.ContainerPort)
 			} else {
-				r.logger.Printf("Auto-mounted %s -> %s (scope=%s)", host, container, mount.Scope)
+				host := ps.HostIP
+				if host == "" {
+					host = "127.0.0.1"
+				}
+				fmt.Printf("Forwarded http://%s:%s -> container:%s (tcp)\n", host, ps.HostPort, ps.ContainerPort)
 			}
 		}
+		return nil
 	}
-	for _, volume := range r.opts.volumes {
-		args = append(args, "-v", volume)
-		if dest := volumeContainerPath(volume); dest != "" {
-			targetMounts = append(targetMounts, dest)
-		}
-	}
-	args = append(args, r.cfg.targetImage)
-	r.logContainerConfig("target", targetMounts, targetEnv)
-	if err := r.runDocker(ctx, args...); err != nil {
-		return err
-	}
-	// Print final port mappings
-	for _, ps := range r.opts.publishes {
-		if ps.Proto == "udp" {
-			fmt.Printf("Forwarded %s:%s -> container:%s (udp)\n", ps.HostIP, ps.HostPort, ps.ContainerPort)
-		} else {
-			host := ps.HostIP
-			if host == "" {
-				host = "127.0.0.1"
-			}
-			fmt.Printf("Forwarded http://%s:%s -> container:%s (tcp)\n", host, ps.HostPort, ps.ContainerPort)
-		}
-	}
-	return nil
+
+	return fmt.Errorf("failed to launch target container after %d attempts", launchRetryLimit)
 }
 
 func (r *runner) detectImageArch(ctx context.Context) (string, error) {
@@ -2072,7 +2144,13 @@ func (r *runner) launchLeashContainer(ctx context.Context, cgroupPath string) er
 
 	args = append(args, r.cfg.leashImage, "--cgroup", cgroupPath)
 	r.logContainerConfig("leash", leashMounts, leashEnv)
-	return r.runDocker(ctx, args...)
+	if err := r.runDocker(ctx, args...); err != nil {
+		if !r.cleanupContainer(ctx, r.cfg.leashContainer) {
+			return fmt.Errorf("failed to remove partial leash container %s", r.cfg.leashContainer)
+		}
+		return err
+	}
+	return nil
 }
 
 func (r *runner) logContainerConfig(role string, mounts, env []string) {
@@ -2552,6 +2630,25 @@ func (r *runner) containerExists(ctx context.Context, name string) (bool, error)
 		return false, err
 	}
 	return true, nil
+}
+
+func (r *runner) cleanupContainer(ctx context.Context, name string) bool {
+	if strings.TrimSpace(name) == "" {
+		return true
+	}
+	for attempts := 0; attempts < 80; attempts++ {
+		_, _ = commandOutput(ctx, "docker", "rm", "-f", name)
+		exists, err := r.containerExists(ctx, name)
+		if err != nil {
+			time.Sleep(250 * time.Millisecond)
+			continue
+		}
+		if !exists {
+			return true
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	return false
 }
 
 func (r *runner) discoverShareDir(ctx context.Context) string {

@@ -19,6 +19,27 @@ import (
 	"time"
 )
 
+func TestIsTLSClientHello(t *testing.T) {
+	t.Parallel()
+	clientHello := []byte{
+		0x16,       // TLS Handshake record
+		0x03, 0x03, // Version TLS 1.2
+		0x00, 0x31, // Record length
+		0x01, // Handshake type: ClientHello
+	}
+	if !isTLSClientHello(clientHello) {
+		t.Fatalf("expected TLS ClientHello detection to succeed")
+	}
+	httpPayload := []byte("GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
+	if isTLSClientHello(httpPayload) {
+		t.Fatalf("expected HTTP payload to be rejected as ClientHello")
+	}
+	invalid := []byte{0x16, 0x03}
+	if isTLSClientHello(invalid) {
+		t.Fatalf("expected short payload to be rejected as ClientHello")
+	}
+}
+
 type stubPolicyChecker struct {
 	allowConnect bool
 	allowMCP     bool

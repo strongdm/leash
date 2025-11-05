@@ -24,9 +24,22 @@ export default function CedarEditorCollapsible({ defaultOpen = false }: Props) {
     }
 
     const handleToggleShortcut = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "e") {
+      const key = event.key.toLowerCase();
+
+      // Check for Ctrl+Alt+E or Ctrl+Alt+P (works on macOS as Ctrl+Option and on Windows/Linux as Ctrl+Alt)
+      if (event.ctrlKey && event.altKey && !event.metaKey && !event.shiftKey && (key === "e" || key === "p")) {
         event.preventDefault();
+        event.stopPropagation();
         setOpen((prev) => !prev);
+        return;
+      }
+
+      // Check for Cmd+Ctrl+E or Cmd+Ctrl+P on macOS
+      if (event.metaKey && event.ctrlKey && !event.altKey && !event.shiftKey && (key === "e" || key === "p")) {
+        event.preventDefault();
+        event.stopPropagation();
+        setOpen((prev) => !prev);
+        return;
       }
     };
 

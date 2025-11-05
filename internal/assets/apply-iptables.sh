@@ -23,12 +23,8 @@ if ! ensure_rule -t nat -C OUTPUT -m mark --mark "$PROXY_MARK" -j RETURN; then
     iptables_cmd -t nat -I OUTPUT 2 -m mark --mark "$PROXY_MARK" -j RETURN
 fi
 
-if ! ensure_rule -t nat -C OUTPUT -p tcp --dport 80 -j REDIRECT --to-ports "$MITM_PORT"; then
-    iptables_cmd -t nat -A OUTPUT -p tcp --dport 80 -j REDIRECT --to-ports "$MITM_PORT"
-fi
-
-if ! ensure_rule -t nat -C OUTPUT -p tcp --dport 443 -j REDIRECT --to-ports "$MITM_PORT"; then
-    iptables_cmd -t nat -A OUTPUT -p tcp --dport 443 -j REDIRECT --to-ports "$MITM_PORT"
+if ! ensure_rule -t nat -C OUTPUT -p tcp -j REDIRECT --to-ports "$MITM_PORT"; then
+    iptables_cmd -t nat -A OUTPUT -p tcp -j REDIRECT --to-ports "$MITM_PORT"
 fi
 
 if ! ensure_rule -t mangle -C OUTPUT -p udp --dport 443 -j DROP; then

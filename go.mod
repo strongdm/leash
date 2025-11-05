@@ -10,6 +10,7 @@ require (
 )
 
 require (
+	github.com/andybalholm/brotli v1.2.0
 	github.com/charmbracelet/bubbletea v0.25.0
 	github.com/charmbracelet/lipgloss v0.9.1
 	github.com/klauspost/compress v1.17.10

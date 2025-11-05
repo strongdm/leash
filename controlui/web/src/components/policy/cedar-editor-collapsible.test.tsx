@@ -39,27 +39,27 @@ describe("CedarEditorCollapsible keyboard shortcut", () => {
     mockContext.mockReturnValue(createContext());
   });
 
-  test("toggles the editor when Ctrl+E is pressed", () => {
+  test("toggles the editor when Ctrl+Alt+E is pressed", () => {
     render(<CedarEditorCollapsible />);
 
     expect(screen.queryByTestId("cedar-editor")).toBeNull();
 
-    fireEvent.keyDown(window, { key: "e", ctrlKey: true });
+    fireEvent.keyDown(window, { key: "e", ctrlKey: true, altKey: true });
     expect(screen.getByTestId("cedar-editor")).toBeInTheDocument();
 
-    fireEvent.keyDown(window, { key: "E", ctrlKey: true });
+    fireEvent.keyDown(window, { key: "e", ctrlKey: true, altKey: true });
     expect(screen.queryByTestId("cedar-editor")).toBeNull();
   });
 
-  test("toggles the editor when Cmd+E is pressed", () => {
+  test("toggles the editor when Cmd+Ctrl+E is pressed", () => {
     render(<CedarEditorCollapsible />);
 
     expect(screen.queryByTestId("cedar-editor")).toBeNull();
 
-    fireEvent.keyDown(window, { key: "e", metaKey: true });
+    fireEvent.keyDown(window, { key: "e", metaKey: true, ctrlKey: true });
     expect(screen.getByTestId("cedar-editor")).toBeInTheDocument();
 
-    fireEvent.keyDown(window, { key: "e", metaKey: true });
+    fireEvent.keyDown(window, { key: "e", metaKey: true, ctrlKey: true });
     expect(screen.queryByTestId("cedar-editor")).toBeNull();
   });
 });

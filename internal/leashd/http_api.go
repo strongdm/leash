@@ -1279,7 +1279,7 @@ func extractCedar(r *http.Request) (string, error) {
 func setCORS(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

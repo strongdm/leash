@@ -1022,6 +1022,9 @@ function transformLogEntry(entry: WebsocketLogEntry): IngestPayload | null {
       name = entry.path ?? entry.exe ?? "file.open";
       break;
     case "file.open:rw":
+      if (entry.path && entry.path.trim() === "/dev/null") {
+        return null;
+      }
       type = "file/write";
       name = entry.path ?? entry.exe ?? "file.open:rw";
       break;

@@ -33,6 +33,7 @@ import (
 	"github.com/strongdm/leash/internal/messages"
 	"github.com/strongdm/leash/internal/policy"
 	"github.com/strongdm/leash/internal/proxy"
+	"github.com/strongdm/leash/internal/secrets"
 	"github.com/strongdm/leash/internal/telemetry/statsig"
 	"github.com/strongdm/leash/internal/ui"
 	websockethub "github.com/strongdm/leash/internal/websocket"
@@ -71,6 +72,7 @@ type runtimeState struct {
 	lsmManager        *lsm.LSMManager
 	policyManager     *policy.Manager
 	macSync           *macsync.Manager
+	secretsManager    *secrets.Manager
 	policyWatcherStop func()
 	policyReady       atomic.Bool
 	closeOnce         sync.Once
@@ -482,6 +484,10 @@ func initRuntime(cfg *runtimeConfig) (*runtimeState, error) {
 		mitmProxy:      mitmProxy,
 		lsmManager:     lsmManager,
 		macSync:        macSync,
+		secretsManager: secrets.NewManager(),
+	}
+	if state.mitmProxy != nil {
+		state.mitmProxy.SetSecretsProvider(state.secretsManager, state.wsHub)
 	}
 
 	policyManager := policy.NewManager(lsmManager, func(rules *lsm.PolicySet, httpRules []proxy.HeaderRewriteRule) {
@@ -618,6 +624,9 @@ func (rt *runtimeState) startFrontend() error {
 
 	api := newPolicyAPI(rt.policyManager, rt.cfg.PolicyPath, rt.wsHub, rt.mitmProxy, rt.wsHub)
 	api.register(mux)
+
+	secretsAPI := newSecretsAPI(rt.secretsManager, rt.wsHub)
+	secretsAPI.register(mux)
 
 	server := httpserver.NewWebServer(rt.cfg.WebBind, mux)
 

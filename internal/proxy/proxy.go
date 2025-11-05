@@ -17,6 +17,7 @@ import (
 	"unsafe"
 
 	"github.com/strongdm/leash/internal/lsm"
+	"github.com/strongdm/leash/internal/secrets"
 )
 
 // PolicyChecker interface for connect policy enforcement
@@ -46,6 +47,8 @@ type MITMProxy struct {
 	httpClient     *http.Client      // Custom HTTP client with marked connections
 	tlsDialer      func(string) (*tls.Conn, error)
 	mcpObserver    *mcpObserver
+	secretsManager *secrets.Manager
+	secretsEvents  secretsBroadcaster
 }
 
 // sockaddr_in structure for SO_ORIGINAL_DST
@@ -141,6 +144,12 @@ func NewMITMProxy(port string, headerRewriter *HeaderRewriter, policyChecker Pol
 	proxy.tlsDialer = proxy.createMarkedTLSConnection
 	proxy.SetPolicyChecker(policyChecker)
 	return proxy, nil
+}
+
+// SetSecretsProvider wires in the secrets manager and optional event broadcaster.
+func (p *MITMProxy) SetSecretsProvider(manager *secrets.Manager, broadcaster secretsBroadcaster) {
+	p.secretsManager = manager
+	p.secretsEvents = broadcaster
 }
 
 // SnapshotMCPHints returns the most recently observed MCP servers and tools.
@@ -261,12 +270,19 @@ func (p *MITMProxy) handleTransparentConnection(clientConn net.Conn) {
 	}
 
 	// Check if it looks like HTTP
-	if isHTTPRequest(buf[:n]) {
-		p.handleTransparentHTTP(clientConn, originalDest, buf[:n])
-	} else {
-		// Assume HTTPS/TLS
-		p.handleTransparentHTTPS(clientConn, originalDest, buf[:n])
+	initial := buf[:n]
+
+	if isHTTPRequest(initial) {
+		p.handleTransparentHTTP(clientConn, originalDest, initial)
+		return
 	}
+
+	if isTLSClientHello(initial) {
+		p.handleTransparentHTTPS(clientConn, originalDest, initial)
+		return
+	}
+
+	p.proxyTransparentTCP(clientConn, originalDest, initial)
 }
 
 // checkConnectPolicy validates if a connection should be allowed based on hostname/IP policy
@@ -371,6 +387,23 @@ func isHTTPRequest(data []byte) bool {
 	return false
 }
 
+func isTLSClientHello(data []byte) bool {
+	if len(data) < 6 {
+		return false
+	}
+	if data[0] != 0x16 {
+		return false
+	}
+	version := uint16(data[1])<<8 | uint16(data[2])
+	if version < 0x0300 || version > 0x0304 {
+		return false
+	}
+	if data[5] != 0x01 {
+		return false
+	}
+	return true
+}
+
 func (p *MITMProxy) handleTransparentHTTP(clientConn net.Conn, originalDest string, initialData []byte) {
 	// Create a reader that includes the initial data
 	reader := io.MultiReader(strings.NewReader(string(initialData)), clientConn)
@@ -421,6 +454,8 @@ func (p *MITMProxy) handleTransparentHTTP(clientConn net.Conn, originalDest stri
 	}
 
 	// Unique request logging removed
+
+	p.applySecrets(req)
 
 	// Apply header rewriting rules
 	p.headerRewriter.ApplyRules(req)
@@ -537,6 +572,7 @@ func (p *MITMProxy) handleTransparentHTTPS(clientConn net.Conn, originalDest str
 	// Handle the TLS connection
 	if err := tlsConn.Handshake(); err != nil {
 		log.Printf("TLS handshake error for %s: %v", originalDest, err)
+		p.proxyTransparentTCP(clientConn, originalDest, initialData)
 		return
 	}
 
@@ -620,6 +656,8 @@ func (p *MITMProxy) handleTransparentHTTPS(clientConn net.Conn, originalDest str
 			break
 		}
 
+		p.applySecrets(req)
+
 		// Apply header rewriting rules
 		p.headerRewriter.ApplyRules(req)
 
@@ -695,6 +733,37 @@ func (p *MITMProxy) forwardTransparentHTTPS(clientConn net.Conn, req *http.Reque
 	}
 
 	return resp.StatusCode, contentType, sessionHeader, nil
+}
+
+func (p *MITMProxy) proxyTransparentTCP(clientConn net.Conn, originalDest string, initialData []byte) {
+	dialer := createMarkedDialer()
+	targetConn, err := dialer.DialContext(context.Background(), "tcp", originalDest)
+	if err != nil {
+		log.Printf("raw proxy dial error for %s: %v", originalDest, err)
+		return
+	}
+	defer targetConn.Close()
+
+	if len(initialData) > 0 {
+		if _, err := targetConn.Write(initialData); err != nil {
+			log.Printf("raw proxy write error to %s: %v", originalDest, err)
+			return
+		}
+	}
+
+	var wg sync.WaitGroup
+	copyStream := func(dst net.Conn, src net.Conn) {
+		defer wg.Done()
+		_, _ = io.Copy(dst, src)
+		if tcpConn, ok := dst.(*net.TCPConn); ok {
+			_ = tcpConn.CloseWrite()
+		}
+	}
+
+	wg.Add(2)
+	go copyStream(targetConn, clientConn)
+	go copyStream(clientConn, targetConn)
+	wg.Wait()
 }
 
 func (p *MITMProxy) getCertificate(host string) (*tls.Certificate, error) {

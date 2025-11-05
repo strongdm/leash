@@ -288,41 +288,105 @@ body {
   
   /* Glitch effect */
   @keyframes glitch {
-    0%, 100% { 
-      text-shadow: 
+    0%, 100% {
+      text-shadow:
         0.05em 0 0 hsl(var(--neon-red) / 0.75),
         -0.05em -0.025em 0 hsl(var(--cyan-bright) / 0.75),
         0.025em 0.05em 0 hsl(var(--neon-green) / 0.75);
     }
     15% {
-      text-shadow: 
+      text-shadow:
         0.05em 0 0 hsl(var(--neon-red) / 0.75),
         -0.05em -0.025em 0 hsl(var(--cyan-bright) / 0.75),
         0.025em 0.05em 0 hsl(var(--neon-green) / 0.75);
     }
     16% {
-      text-shadow: 
+      text-shadow:
         -0.05em -0.025em 0 hsl(var(--neon-red) / 0.75),
         0.025em 0.025em 0 hsl(var(--cyan-bright) / 0.75),
         -0.05em -0.05em 0 hsl(var(--neon-green) / 0.75);
     }
     49% {
-      text-shadow: 
+      text-shadow:
         -0.05em -0.025em 0 hsl(var(--neon-red) / 0.75),
         0.025em 0.025em 0 hsl(var(--cyan-bright) / 0.75),
         -0.05em -0.05em 0 hsl(var(--neon-green) / 0.75);
     }
     50% {
-      text-shadow: 
+      text-shadow:
         0.025em 0.05em 0 hsl(var(--neon-red) / 0.75),
         0.05em 0 0 hsl(var(--cyan-bright) / 0.75),
         0 -0.05em 0 hsl(var(--neon-green) / 0.75);
     }
     99% {
-      text-shadow: 
+      text-shadow:
         0.025em 0.05em 0 hsl(var(--neon-red) / 0.75),
         0.05em 0 0 hsl(var(--cyan-bright) / 0.75),
         0 -0.05em 0 hsl(var(--neon-green) / 0.75);
     }
+  }
+
+  /* Fluorescent bulb flicker with color shift - 0.5s startup */
+  @keyframes flicker {
+    0% {
+      opacity: 0.3;
+      filter: hue-rotate(0deg) brightness(1);
+    }
+    10% {
+      opacity: 1;
+      filter: hue-rotate(0deg) brightness(1.1);
+    }
+    20% {
+      opacity: 0.2;
+      filter: hue-rotate(5deg) brightness(1);
+    }
+    30% {
+      opacity: 1;
+      filter: hue-rotate(5deg) brightness(1.1);
+    }
+    40% {
+      opacity: 0.4;
+      filter: hue-rotate(10deg) brightness(1);
+    }
+    50% {
+      opacity: 1;
+      filter: hue-rotate(10deg) brightness(1.05);
+    }
+    60% {
+      opacity: 0.5;
+      filter: hue-rotate(15deg) brightness(1);
+    }
+    70% {
+      opacity: 1;
+      filter: hue-rotate(15deg) brightness(1.05);
+    }
+    80% {
+      opacity: 0.7;
+      filter: hue-rotate(20deg) brightness(1);
+    }
+    90% {
+      opacity: 1;
+      filter: hue-rotate(20deg) brightness(1);
+    }
+    100% {
+      opacity: 1;
+      filter: hue-rotate(25deg) brightness(1);
+    }
+  }
+
+  /* Color gradient hold - stays at final purple */
+  @keyframes colorhold {
+    from {
+      filter: hue-rotate(25deg) brightness(1);
+    }
+    to {
+      filter: hue-rotate(25deg) brightness(1);
+    }
+  }
+
+  /* Fade out animation for end of sequence */
+  @keyframes fadeout {
+    from { opacity: 1; }
+    to { opacity: 0; }
   }
 }

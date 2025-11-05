@@ -28,16 +28,11 @@ if ! ensure_rule -t nat -C OUTPUT -m mark --mark "$PROXY_MARK" -j RETURN; then
 fi
 
 # HTTP/HTTPS redirects over TCPv6
-if ! ensure_rule -t nat -C OUTPUT -p tcp --dport 80 -j REDIRECT --to-ports "$MITM_PORT"; then
-    ip6tables_cmd -t nat -A OUTPUT -p tcp --dport 80 -j REDIRECT --to-ports "$MITM_PORT"
-fi
-
-if ! ensure_rule -t nat -C OUTPUT -p tcp --dport 443 -j REDIRECT --to-ports "$MITM_PORT"; then
-    ip6tables_cmd -t nat -A OUTPUT -p tcp --dport 443 -j REDIRECT --to-ports "$MITM_PORT"
+if ! ensure_rule -t nat -C OUTPUT -p tcp -j REDIRECT --to-ports "$MITM_PORT"; then
+    ip6tables_cmd -t nat -A OUTPUT -p tcp -j REDIRECT --to-ports "$MITM_PORT"
 fi
 
 # Kill QUIC over IPv6 to force TLS over TCP through the MITM
 if ! ensure_rule -t mangle -C OUTPUT -p udp --dport 443 -j DROP; then
     ip6tables_cmd -t mangle -A OUTPUT -p udp --dport 443 -j DROP
 fi
-

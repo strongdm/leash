@@ -30,6 +30,7 @@ import (
 	"github.com/strongdm/leash/internal/lsm"
 	"github.com/strongdm/leash/internal/policy"
 	"github.com/strongdm/leash/internal/proxy"
+	"github.com/strongdm/leash/internal/secrets"
 	"github.com/strongdm/leash/internal/telemetry/otel"
 	"github.com/strongdm/leash/internal/telemetry/statsig"
 	"github.com/strongdm/leash/internal/ui"
@@ -140,6 +141,7 @@ type runtimeState struct {
 	mitmProxy         *proxy.MITMProxy
 	lsmManager        *lsm.LSMManager
 	policyManager     *policy.Manager
+	secretsManager    *secrets.Manager
 	policyWatcherStop func()
 	policyReady       atomic.Bool
 	closeOnce         sync.Once
@@ -392,9 +394,11 @@ func initRuntime(cfg *runtimeConfig, leashDir string) (*runtimeState, error) {
 		headerRewriter:    headerRewriter,
 		mitmProxy:         mitmProxy,
 		lsmManager:        lsmManager,
+		secretsManager:    secrets.NewManager(),
 		bootstrapPath:     filepath.Join(leashDir, entrypoint.BootstrapReadyFileName),
 		telemetryProvider: telemetryProvider,
 	}
+	state.mitmProxy.SetSecretsProvider(state.secretsManager, state.wsHub)
 
 	policyManager := policy.NewManager(lsmManager, func(rules *lsm.PolicySet, httpRules []proxy.HeaderRewriteRule) {
 		state.headerRewriter.SetRules(httpRules)
@@ -568,6 +572,9 @@ func (rt *runtimeState) startFrontend() error {
 
 	api := newPolicyAPI(rt.policyManager, rt.cfg.PolicyPath, rt.wsHub, rt.mitmProxy, rt.wsHub)
 	api.register(mux)
+
+	secretsAPI := newSecretsAPI(rt.secretsManager, rt.wsHub)
+	secretsAPI.register(mux)
 
 	// Suggestion API for raw suggestions preview
 	suggest := newSuggestAPI(rt.policyManager, rt.wsHub)
