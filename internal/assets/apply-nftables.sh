@@ -7,6 +7,7 @@ set -e
 # - Drop QUIC (udp/443) via inet route hook
 
 MITM_PORT=${1:-18000}
+CONTROL_PORT=${2:-}
 PROXY_MARK=${PROXY_MARK:-0x2000}
 NFT=${NFT:-nft}
 
@@ -57,3 +58,10 @@ ensure_rule ip6 leash6 out_nat "leash:redir-tcp" tcp dport != $MITM_PORT redirec
 ensure_table inet leash
 ensure_chain inet leash out_route { type route hook output priority 0\; }
 ensure_rule inet leash out_route "leash:drop-quic" udp dport 443 drop
+
+# Block access to the ControlUI from target container
+if [ -n "$CONTROL_PORT" ]; then
+    ensure_chain inet leash out_filter { type filter hook output priority 0\; }
+    ensure_rule inet leash out_filter "leash:block-ui-loopback" oifname lo ip daddr 127.0.0.1 tcp dport $CONTROL_PORT reject with tcp reset
+    ensure_rule inet leash out_filter "leash:block-ui-loopback-v6" oifname lo ip6 daddr ::1 tcp dport $CONTROL_PORT reject with tcp reset
+fi

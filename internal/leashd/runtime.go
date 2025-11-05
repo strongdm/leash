@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -641,8 +642,12 @@ func (rt *runtimeState) configureNetwork() error {
 	}
 
 	fmt.Fprintf(os.Stderr, "leash: applying network interception rules\n")
-	if err := applyNetworkRules(rt.cfg.ProxyPort); err != nil {
+	uiPort := portFromAddress(rt.cfg.WebBind)
+	if err := applyNetworkRules(rt.cfg.ProxyPort, uiPort); err != nil {
 		return err
+	}
+	if err := applyLoopbackBlock(uiPort); err != nil {
+		log.Printf("Warning: failed to apply loopback guard: %v", err)
 	}
 
 	// Best-effort mounts and environment probe
@@ -719,25 +724,25 @@ var ip6tablesBinaryName = "ip6tables"
 var nftBinaryName = "nft"
 
 // applyNetworkRules attempts nftables first (v4+v6) then falls back to iptables/ip6tables.
-func applyNetworkRules(port string) error {
-	if port == "" {
-		port = "18000"
+func applyNetworkRules(proxyPort, controlPort string) error {
+	if proxyPort == "" {
+		proxyPort = "18000"
 	}
 	// Try nftables first if available
 	if _, err := findNft(); err == nil {
-		if err := applyNftablesRules(port); err == nil {
+		if err := applyNftablesRules(proxyPort, controlPort); err == nil {
 			return nil
 		} else {
 			log.Printf("Warning: nftables apply failed; falling back to iptables: %v", err)
 		}
 	}
 	// Fallback: iptables + ip6tables (best-effort)
-	return applyIptablesRules(port)
+	return applyIptablesRules(proxyPort, controlPort)
 }
 
-func applyIptablesRules(port string) error {
-	if port == "" {
-		port = "18000"
+func applyIptablesRules(proxyPort, controlPort string) error {
+	if proxyPort == "" {
+		proxyPort = "18000"
 	}
 	if _, err := findIptables(); err != nil {
 		return err
@@ -748,7 +753,7 @@ func applyIptablesRules(port string) error {
 		return fmt.Errorf("shell not found: %w", err)
 	}
 
-	cmd := exec.Command(shell, "-s", port)
+	cmd := exec.Command(shell, "-s", proxyPort, controlPort)
 	cmd.Stdin = strings.NewReader(assets.ApplyIptablesScript)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -759,7 +764,7 @@ func applyIptablesRules(port string) error {
 
 	// Best-effort IPv6 support: run ip6tables rules if ip6tables exists
 	if p, _ := findIp6tables(); p != "" {
-		v6 := exec.Command(shell, "-s", port)
+		v6 := exec.Command(shell, "-s", proxyPort, controlPort)
 		v6.Stdin = strings.NewReader(assets.ApplyIp6tablesScript)
 		v6.Stdout = os.Stdout
 		v6.Stderr = os.Stderr
@@ -794,9 +799,9 @@ func findIptables() (string, error) {
 }
 
 // applyNftablesRules runs the embedded nftables script to configure v4+v6.
-func applyNftablesRules(port string) error {
-	if port == "" {
-		port = "18000"
+func applyNftablesRules(proxyPort, controlPort string) error {
+	if proxyPort == "" {
+		proxyPort = "18000"
 	}
 	if _, err := findNft(); err != nil {
 		return err
@@ -805,12 +810,59 @@ func applyNftablesRules(port string) error {
 	if _, err := exec.LookPath(shell); err != nil {
 		return fmt.Errorf("shell not found: %w", err)
 	}
-	cmd := exec.Command(shell, "-s", port)
+	cmd := exec.Command(shell, "-s", proxyPort, controlPort)
 	cmd.Stdin = strings.NewReader(assets.ApplyNftablesScript)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Env = append(os.Environ(), "PROXY_MARK="+proxyMark)
 	return cmd.Run()
+}
+
+func portFromAddress(addr string) string {
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		return ""
+	}
+	if strings.HasPrefix(addr, ":") {
+		return strings.TrimPrefix(addr, ":")
+	}
+	_, port, err := net.SplitHostPort(addr)
+	if err == nil {
+		return port
+	}
+	return ""
+}
+
+func applyLoopbackBlock(port string) error {
+	port = strings.TrimSpace(port)
+	if port == "" {
+		return nil
+	}
+	if ipt, err := findIptables(); err == nil {
+		check := []string{"-w", "-t", "filter", "-C", "OUTPUT", "-o", "lo", "-d", "127.0.0.1", "-p", "tcp", "--dport", port, "-j", "REJECT", "--reject-with", "tcp-reset"}
+		if err := exec.Command(ipt, check...).Run(); err != nil {
+			logPolicyEvent("loopback.guard", map[string]any{"family": "ipv4", "stage": "add", "port": port})
+			add := []string{"-w", "-t", "filter", "-A", "OUTPUT", "-o", "lo", "-d", "127.0.0.1", "-p", "tcp", "--dport", port, "-j", "REJECT", "--reject-with", "tcp-reset"}
+			if out, addErr := exec.Command(ipt, add...).CombinedOutput(); addErr != nil {
+				return fmt.Errorf("iptables loopback rule: %w: %s", addErr, strings.TrimSpace(string(out)))
+			}
+		} else {
+			logPolicyEvent("loopback.guard", map[string]any{"family": "ipv4", "stage": "exists", "port": port})
+		}
+	}
+	if ip6, err := findIp6tables(); err == nil && strings.TrimSpace(ip6) != "" {
+		check6 := []string{"-w", "-t", "filter", "-C", "OUTPUT", "-o", "lo", "-d", "::1", "-p", "tcp", "--dport", port, "-j", "REJECT", "--reject-with", "tcp-reset"}
+		if err := exec.Command(ip6, check6...).Run(); err != nil {
+			logPolicyEvent("loopback.guard", map[string]any{"family": "ipv6", "stage": "add", "port": port})
+			add6 := []string{"-w", "-t", "filter", "-A", "OUTPUT", "-o", "lo", "-d", "::1", "-p", "tcp", "--dport", port, "-j", "REJECT", "--reject-with", "tcp-reset"}
+			if out, addErr := exec.Command(ip6, add6...).CombinedOutput(); addErr != nil {
+				return fmt.Errorf("ip6tables loopback rule: %w: %s", addErr, strings.TrimSpace(string(out)))
+			}
+		} else {
+			logPolicyEvent("loopback.guard", map[string]any{"family": "ipv6", "stage": "exists", "port": port})
+		}
+	}
+	return nil
 }
 
 // findNft locates the nft binary by searching PATH first, then common sbin directories.
