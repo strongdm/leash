@@ -107,6 +107,47 @@ func (c Config) ResolveEnvVars(projectPath string) (map[string]EnvVarValue, erro
 	return result, nil
 }
 
+// ResolveSecrets merges global and project-specific secrets following the precedence rules
+// (project > global). The returned map is keyed by secret name with its effective value and scope.
+func (c Config) ResolveSecrets(projectPath string) (map[string]SecretValue, error) {
+	result := make(map[string]SecretValue)
+
+	for key, value := range c.Secrets {
+		trimmedKey := strings.TrimSpace(key)
+		if trimmedKey == "" {
+			continue
+		}
+		result[trimmedKey] = SecretValue{
+			Value: value,
+			Scope: ScopeGlobal,
+		}
+	}
+
+	if strings.TrimSpace(projectPath) == "" {
+		return result, nil
+	}
+
+	normalized, err := normalizeProjectKey(projectPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if secrets, ok := c.ProjectSecrets[normalized]; ok {
+		for key, value := range secrets {
+			trimmedKey := strings.TrimSpace(key)
+			if trimmedKey == "" {
+				continue
+			}
+			result[trimmedKey] = SecretValue{
+				Value: value,
+				Scope: ScopeProject,
+			}
+		}
+	}
+
+	return result, nil
+}
+
 // SetGlobalVolume persists the global decision for a command.
 func (c *Config) SetGlobalVolume(cmd string, enabled bool) error {
 	if err := ensureSupportedCommand(cmd); err != nil {

@@ -232,12 +232,13 @@ func execute(cmdName string, args []string) error {
 		return fmt.Errorf("determine working directory: %w", err)
 	}
 
-	cfg, configEnv, err := loadConfig(callerDir, opts)
+	cfg, configEnv, configSecrets, err := loadConfig(callerDir, opts)
 	if err != nil {
 		return err
 	}
 
 	opts.envVars = resolveEnvVars(opts.envVars, configEnv, opts.subcommand)
+	opts.secretSpecs = mergeSecretSpecs(opts.secretSpecs, configSecrets)
 
 	if err := ensureCommand("docker"); err != nil {
 		return err
@@ -610,6 +611,70 @@ func isValidSecretKey(key string) bool {
 	return true
 }
 
+func mergeSecretSpecs(cli []secretSpec, config map[string]configstore.SecretValue) []secretSpec {
+	if len(cli) == 0 && len(config) == 0 {
+		return nil
+	}
+
+	layers := make([]configstore.EnvLayer, 0, 2)
+
+	if len(config) > 0 {
+		specs := make(map[string]string, len(config))
+		order := make([]string, 0, len(config))
+		keys := make([]string, 0, len(config))
+		for key := range config {
+			trimmed := strings.TrimSpace(key)
+			if trimmed == "" {
+				continue
+			}
+			keys = append(keys, trimmed)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			specs[key] = fmt.Sprintf("%s=%s", key, config[key].Value)
+			order = append(order, key)
+		}
+		if len(specs) > 0 {
+			layers = append(layers, configstore.EnvLayer{Specs: specs, Order: order})
+		}
+	}
+
+	if len(cli) > 0 {
+		specs := make(map[string]string, len(cli))
+		order := make([]string, 0, len(cli))
+		for _, spec := range cli {
+			specs[spec.Key] = fmt.Sprintf("%s=%s", spec.Key, spec.Value)
+			order = append(order, spec.Key)
+		}
+		if len(specs) > 0 {
+			layers = append(layers, configstore.EnvLayer{Specs: specs, Order: order})
+		}
+	}
+
+	if len(layers) == 0 {
+		return nil
+	}
+
+	merged := configstore.MergeEnvLayers(layers...)
+	if len(merged) == 0 {
+		return nil
+	}
+	result := make([]secretSpec, 0, len(merged))
+	for _, entry := range merged {
+		parts := strings.SplitN(entry, "=", 2)
+		key := strings.TrimSpace(parts[0])
+		if key == "" {
+			continue
+		}
+		value := ""
+		if len(parts) == 2 {
+			value = parts[1]
+		}
+		result = append(result, secretSpec{Key: key, Value: value})
+	}
+	return result
+}
+
 func envSpecKey(spec string) string {
 	spec = strings.TrimSpace(spec)
 	if spec == "" {
@@ -886,7 +951,7 @@ func sanitizeProjectName(raw string) string {
 	return result
 }
 
-func loadConfig(callerDir string, opts options) (config, map[string]configstore.EnvVarValue, error) {
+func loadConfig(callerDir string, opts options) (config, map[string]configstore.EnvVarValue, map[string]configstore.SecretValue, error) {
 	workDirEnv := strings.TrimSpace(os.Getenv("LEASH_WORK_DIR"))
 	var (
 		workDir       string
@@ -897,7 +962,7 @@ func loadConfig(callerDir string, opts options) (config, map[string]configstore.
 	} else {
 		tempDir, err := createTempWorkDir(callerDir)
 		if err != nil {
-			return config{}, nil, fmt.Errorf("create work dir: %w", err)
+			return config{}, nil, nil, fmt.Errorf("create work dir: %w", err)
 		}
 		workDir = tempDir
 		workDirIsTemp = true
@@ -954,7 +1019,7 @@ func loadConfig(callerDir string, opts options) (config, map[string]configstore.
 	if envPolicy != "" {
 		resolvedPolicy, err := resolvePolicyPath(callerDir, envPolicy)
 		if err != nil {
-			return config{}, nil, err
+			return config{}, nil, nil, err
 		}
 		cfg.policyPath = resolvedPolicy
 		cfg.policyOverride = true
@@ -965,15 +1030,23 @@ func loadConfig(callerDir string, opts options) (config, map[string]configstore.
 
 	cfgData, err := configstore.Load()
 	if err != nil {
-		return config{}, nil, fmt.Errorf("load leash config: %w", err)
+		return config{}, nil, nil, fmt.Errorf("load leash config: %w", err)
 	}
 
 	resolvedEnv, err := cfgData.ResolveEnvVars(callerDir)
 	if err != nil {
-		return config{}, nil, fmt.Errorf("resolve config env vars: %w", err)
+		return config{}, nil, nil, fmt.Errorf("resolve config env vars: %w", err)
 	}
 	if resolvedEnv == nil {
 		resolvedEnv = make(map[string]configstore.EnvVarValue)
+	}
+
+	resolvedSecrets, err := cfgData.ResolveSecrets(callerDir)
+	if err != nil {
+		return config{}, nil, nil, fmt.Errorf("resolve config secrets: %w", err)
+	}
+	if resolvedSecrets == nil {
+		resolvedSecrets = make(map[string]configstore.SecretValue)
 	}
 
 	targetFromConfig := ""
@@ -1012,7 +1085,7 @@ func loadConfig(callerDir string, opts options) (config, map[string]configstore.
 	if cfg.targetImageSource == imageSourceDefault {
 		targetID, targetPath, err := readDevImageID(callerDir, devDockerCoderFile)
 		if err != nil {
-			return config{}, nil, err
+			return config{}, nil, nil, err
 		}
 		if targetID != "" {
 			cfg.targetImage = targetID
@@ -1024,7 +1097,7 @@ func loadConfig(callerDir string, opts options) (config, map[string]configstore.
 	if cfg.leashImageSource == imageSourceDefault {
 		leashID, leashPath, err := readDevImageID(callerDir, devDockerLeashFile)
 		if err != nil {
-			return config{}, nil, err
+			return config{}, nil, nil, err
 		}
 		if leashID != "" {
 			cfg.leashImage = leashID
@@ -1036,7 +1109,7 @@ func loadConfig(callerDir string, opts options) (config, map[string]configstore.
 	if opts.policyOverride != "" {
 		customPolicy, err := resolvePolicyPath(callerDir, opts.policyOverride)
 		if err != nil {
-			return config{}, nil, err
+			return config{}, nil, nil, err
 		}
 		cfg.policyPath = customPolicy
 		cfg.policyOverride = true
@@ -1046,10 +1119,10 @@ func loadConfig(callerDir string, opts options) (config, map[string]configstore.
 	if raw := strings.TrimSpace(os.Getenv("LEASH_BOOTSTRAP_TIMEOUT")); raw != "" {
 		parsed, err := parseTimeout(raw)
 		if err != nil {
-			return config{}, nil, fmt.Errorf("parse LEASH_BOOTSTRAP_TIMEOUT: %w", err)
+			return config{}, nil, nil, fmt.Errorf("parse LEASH_BOOTSTRAP_TIMEOUT: %w", err)
 		}
 		if parsed <= 0 {
-			return config{}, nil, fmt.Errorf("LEASH_BOOTSTRAP_TIMEOUT must be positive")
+			return config{}, nil, nil, fmt.Errorf("LEASH_BOOTSTRAP_TIMEOUT must be positive")
 		}
 		timeout = parsed
 	}
@@ -1060,14 +1133,14 @@ func loadConfig(callerDir string, opts options) (config, map[string]configstore.
 	if opts.listenSet {
 		parsed, err := listen.Parse(opts.listen)
 		if err != nil {
-			return config{}, nil, fmt.Errorf("parse listen flag: %w", err)
+			return config{}, nil, nil, fmt.Errorf("parse listen flag: %w", err)
 		}
 		listenCfg = parsed
 		listenExplicit = true
 	} else if raw, ok := os.LookupEnv("LEASH_LISTEN"); ok {
 		parsed, err := listen.Parse(raw)
 		if err != nil {
-			return config{}, nil, fmt.Errorf("parse LEASH_LISTEN: %w", err)
+			return config{}, nil, nil, fmt.Errorf("parse LEASH_LISTEN: %w", err)
 		}
 		listenCfg = parsed
 		listenExplicit = true
@@ -1075,7 +1148,7 @@ func loadConfig(callerDir string, opts options) (config, map[string]configstore.
 	cfg.listenCfg = listenCfg
 	cfg.listenExplicit = listenExplicit
 	cleanupTemp = false
-	return cfg, resolvedEnv, nil
+	return cfg, resolvedEnv, resolvedSecrets, nil
 }
 
 func readDevImageID(baseDir, filename string) (string, string, error) {

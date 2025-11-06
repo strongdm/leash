@@ -19,6 +19,8 @@ type Config struct {
 	ProjectTargetImages   map[string]string
 	EnvVars               map[string]string
 	ProjectEnvVars        map[string]map[string]string
+	Secrets               map[string]string
+	ProjectSecrets        map[string]map[string]string
 }
 
 // DecisionScope models the precedence layer that yielded an effective choice.
@@ -44,6 +46,12 @@ type EnvVarValue struct {
 	Scope DecisionScope
 }
 
+// SecretValue mirrors EnvVarValue but is scoped to secrets managed by the CLI.
+type SecretValue struct {
+	Value string
+	Scope DecisionScope
+}
+
 // New returns a Config with initialized maps. Callers that mutate the
 // configuration should always start from this constructor to avoid nil maps.
 func New() Config {
@@ -56,6 +64,8 @@ func New() Config {
 		ProjectTargetImages:   make(map[string]string),
 		EnvVars:               make(map[string]string),
 		ProjectEnvVars:        make(map[string]map[string]string),
+		Secrets:               make(map[string]string),
+		ProjectSecrets:        make(map[string]map[string]string),
 	}
 }
 
@@ -124,6 +134,20 @@ func (c Config) Clone() Config {
 			dst[key] = value
 		}
 		out.ProjectEnvVars[projectPath] = dst
+	}
+	for key, value := range c.Secrets {
+		out.Secrets[key] = value
+	}
+	for projectPath, secrets := range c.ProjectSecrets {
+		if secrets == nil {
+			out.ProjectSecrets[projectPath] = make(map[string]string)
+			continue
+		}
+		dst := make(map[string]string, len(secrets))
+		for key, value := range secrets {
+			dst[key] = value
+		}
+		out.ProjectSecrets[projectPath] = dst
 	}
 	out.TargetImage = c.TargetImage
 	return out
@@ -254,6 +278,17 @@ func (c *Config) ensureInitialized() {
 			c.ProjectEnvVars[key] = make(map[string]string)
 		}
 	}
+	if c.Secrets == nil {
+		c.Secrets = make(map[string]string)
+	}
+	if c.ProjectSecrets == nil {
+		c.ProjectSecrets = make(map[string]map[string]string)
+	}
+	for key, secrets := range c.ProjectSecrets {
+		if secrets == nil {
+			c.ProjectSecrets[key] = make(map[string]string)
+		}
+	}
 }
 
 func boolPtr(v bool) *bool {
@@ -364,5 +399,74 @@ func (c *Config) UnsetProjectEnvVar(projectPath, key string) error {
 		return nil
 	}
 	c.ProjectEnvVars[projectKey] = envs
+	return nil
+}
+
+// SetGlobalSecret persists a global secret value.
+func (c *Config) SetGlobalSecret(key, value string) error {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return fmt.Errorf("secret key must not be empty")
+	}
+	c.ensureInitialized()
+	c.Secrets[key] = value
+	return nil
+}
+
+// UnsetGlobalSecret removes a configured global secret.
+func (c *Config) UnsetGlobalSecret(key string) {
+	if c.Secrets == nil {
+		return
+	}
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return
+	}
+	delete(c.Secrets, key)
+}
+
+// SetProjectSecret associates a secret value with a specific project.
+func (c *Config) SetProjectSecret(projectPath, key, value string) error {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return fmt.Errorf("secret key must not be empty")
+	}
+	projectKey, err := normalizeProjectKey(projectPath)
+	if err != nil {
+		return err
+	}
+	c.ensureInitialized()
+	secrets := c.ProjectSecrets[projectKey]
+	if secrets == nil {
+		secrets = make(map[string]string)
+	}
+	secrets[key] = value
+	c.ProjectSecrets[projectKey] = secrets
+	return nil
+}
+
+// UnsetProjectSecret removes a project-scoped secret override.
+func (c *Config) UnsetProjectSecret(projectPath, key string) error {
+	if c.ProjectSecrets == nil {
+		return nil
+	}
+	projectKey, err := normalizeProjectKey(projectPath)
+	if err != nil {
+		return err
+	}
+	secrets, ok := c.ProjectSecrets[projectKey]
+	if !ok || secrets == nil {
+		return nil
+	}
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return nil
+	}
+	delete(secrets, key)
+	if len(secrets) == 0 {
+		delete(c.ProjectSecrets, projectKey)
+		return nil
+	}
+	c.ProjectSecrets[projectKey] = secrets
 	return nil
 }

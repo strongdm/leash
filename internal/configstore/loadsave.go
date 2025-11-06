@@ -85,6 +85,20 @@ func decodeConfig(data []byte, path string, cfg *Config) error {
 		}
 	}
 
+	if secrets, ok := raw["secrets"].(map[string]any); ok {
+		for key, value := range secrets {
+			strVal, err := toString(value)
+			if err != nil {
+				return fmt.Errorf("parse secrets.%s: %w", key, err)
+			}
+			trimmedKey := strings.TrimSpace(key)
+			if trimmedKey == "" {
+				continue
+			}
+			cfg.Secrets[trimmedKey] = strVal
+		}
+	}
+
 	if projects, ok := raw["projects"].(map[string]any); ok {
 		for projectKey, rawValue := range projects {
 			projectTable, ok := rawValue.(map[string]any)
@@ -99,6 +113,7 @@ func decodeConfig(data []byte, path string, cfg *Config) error {
 			envVars := make(map[string]string)
 			customVolumes := make(map[string]string)
 			volumeDisables := make(map[string]bool)
+			projectSecrets := make(map[string]string)
 
 			for key, value := range projectTable {
 				switch key {
@@ -155,6 +170,22 @@ func decodeConfig(data []byte, path string, cfg *Config) error {
 						}
 						envVars[trimmedKey] = strVal
 					}
+				case "secrets":
+					secretTable, ok := value.(map[string]any)
+					if !ok {
+						return fmt.Errorf("parse projects.%s.secrets: expected table", projectKey)
+					}
+					for secretKey, rawVal := range secretTable {
+						strVal, err := toString(rawVal)
+						if err != nil {
+							return fmt.Errorf("parse projects.%s.secrets.%s: %w", projectKey, secretKey, err)
+						}
+						trimmedKey := strings.TrimSpace(secretKey)
+						if trimmedKey == "" {
+							continue
+						}
+						projectSecrets[trimmedKey] = strVal
+					}
 				default:
 					if _, supported := supportedCommands[key]; supported {
 						boolVal, err := toBool(value)
@@ -195,6 +226,9 @@ func decodeConfig(data []byte, path string, cfg *Config) error {
 			}
 			if len(volumeDisables) > 0 {
 				cfg.ProjectVolumeDisables[normalizedKey] = volumeDisables
+			}
+			if len(projectSecrets) > 0 {
+				cfg.ProjectSecrets[normalizedKey] = projectSecrets
 			}
 		}
 	}
@@ -274,6 +308,7 @@ func Save(cfg Config) error {
 
 type persistedConfig struct {
 	Volumes  map[string]any            `toml:"volumes,omitempty"`
+	Secrets  map[string]string         `toml:"secrets,omitempty"`
 	Projects map[string]map[string]any `toml:"projects,omitempty"`
 	Leash    map[string]any            `toml:"leash,omitempty"`
 }
@@ -305,6 +340,20 @@ func buildPersisted(cfg Config) persistedConfig {
 		}
 	}
 
+	if len(cfg.Secrets) > 0 {
+		secrets := make(map[string]string, len(cfg.Secrets))
+		for key, value := range cfg.Secrets {
+			trimmedKey := strings.TrimSpace(key)
+			if trimmedKey == "" {
+				continue
+			}
+			secrets[trimmedKey] = value
+		}
+		if len(secrets) > 0 {
+			result.Secrets = secrets
+		}
+	}
+
 	projectKeys := make(map[string]struct{})
 	for key := range cfg.ProjectCommandVolumes {
 		projectKeys[key] = struct{}{}
@@ -319,6 +368,9 @@ func buildPersisted(cfg Config) persistedConfig {
 		projectKeys[key] = struct{}{}
 	}
 	for key := range cfg.ProjectEnvVars {
+		projectKeys[key] = struct{}{}
+	}
+	for key := range cfg.ProjectSecrets {
 		projectKeys[key] = struct{}{}
 	}
 
@@ -360,6 +412,19 @@ func buildPersisted(cfg Config) persistedConfig {
 				}
 				if len(envCopy) > 0 {
 					entry["envvars"] = envCopy
+				}
+			}
+			if secrets, ok := cfg.ProjectSecrets[key]; ok && len(secrets) > 0 {
+				secretCopy := make(map[string]string, len(secrets))
+				for secretKey, value := range secrets {
+					trimmedKey := strings.TrimSpace(secretKey)
+					if trimmedKey == "" {
+						continue
+					}
+					secretCopy[trimmedKey] = value
+				}
+				if len(secretCopy) > 0 {
+					entry["secrets"] = secretCopy
 				}
 			}
 			if img := strings.TrimSpace(cfg.ProjectTargetImages[key]); img != "" {

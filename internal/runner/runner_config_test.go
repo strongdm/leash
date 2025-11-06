@@ -24,7 +24,7 @@ func TestLoadConfigCreatesTemporaryWorkDir(t *testing.T) {
 
 	caller := t.TempDir()
 
-	cfg, _, err := loadConfig(caller, options{})
+	cfg, _, _, err := loadConfig(caller, options{})
 	if err != nil {
 		t.Fatalf("loadConfig returned error: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestLoadConfigRespectsEnvWorkDir(t *testing.T) {
 	clearEnv(t, "TARGET_CONTAINER")
 	clearEnv(t, "LEASH_CONTAINER")
 
-	cfg, _, err := loadConfig(caller, options{})
+	cfg, _, _, err := loadConfig(caller, options{})
 	if err != nil {
 		t.Fatalf("loadConfig returned error: %v", err)
 	}
@@ -167,7 +167,7 @@ func TestLoadConfigDefaultsContainerNamesFromProject(t *testing.T) {
 		t.Fatalf("mkdir %s: %v", projectDir, err)
 	}
 
-	cfg, _, err := loadConfig(projectDir, options{})
+	cfg, _, _, err := loadConfig(projectDir, options{})
 	if err != nil {
 		t.Fatalf("loadConfig returned error: %v", err)
 	}
@@ -201,7 +201,7 @@ func TestLoadConfigRespectsTargetContainerEnv(t *testing.T) {
 	setEnv(t, "TARGET_CONTAINER", "custom-target")
 	clearEnv(t, "LEASH_CONTAINER")
 
-	cfg, _, err := loadConfig(caller, options{})
+	cfg, _, _, err := loadConfig(caller, options{})
 	if err != nil {
 		t.Fatalf("loadConfig returned error: %v", err)
 	}
@@ -227,7 +227,7 @@ func TestLoadConfigRespectsTargetImageEnv(t *testing.T) {
 
 	setEnv(t, "TARGET_IMAGE", "example.com/custom:latest")
 
-	cfg, _, err := loadConfig(caller, options{})
+	cfg, _, _, err := loadConfig(caller, options{})
 	if err != nil {
 		t.Fatalf("loadConfig returned error: %v", err)
 	}
@@ -261,7 +261,7 @@ func TestLoadConfigUsesDevDockerFiles(t *testing.T) {
 		t.Fatalf("write leash dev file: %v", err)
 	}
 
-	cfg, _, err := loadConfig(caller, options{})
+	cfg, _, _, err := loadConfig(caller, options{})
 	if err != nil {
 		t.Fatalf("loadConfig returned error: %v", err)
 	}
@@ -312,7 +312,7 @@ func TestLoadConfigDevDockerFilesIgnoredWhenEnvOverrides(t *testing.T) {
 	setEnv(t, "TARGET_IMAGE", "example.com/env-target:latest")
 	setEnv(t, "LEASH_IMAGE", "example.com/env-leash:latest")
 
-	cfg, _, err := loadConfig(caller, options{})
+	cfg, _, _, err := loadConfig(caller, options{})
 	if err != nil {
 		t.Fatalf("loadConfig returned error: %v", err)
 	}

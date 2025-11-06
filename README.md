@@ -56,11 +56,11 @@ Choose whether to remember that decision globally, for the current project, or j
 ## Key Concepts
 
 - **Full monitoring** captures every filesystem access and network connection initiated by the agent so Cedar policies and audit trails operate on complete telemetry.
-
 - **Agent container** runs your command with the current directory bind-mounted, so tools see the same file tree they would on the host.
 - **Leash container** monitors system calls, applies Cedar policies, and exposes the Control UI at http://localhost:18080 (use `--open` to launch it automatically).
 - **Mount prompts** remember whether to forward host agent credentials (see [CONFIG.md](docs/CONFIG.md)).
 - **Environment forwarding** maps common API keys automatically: `ANTHROPIC_API_KEY` for `claude`, `OPENAI_API_KEY` for `codex`, `GEMINI_API_KEY` for `gemini`, and `DASHSCOPE_API_KEY` for `qwen`.
+- **Secure secrets injection** via [cli](docs/design/SECRETS.md), [configuration](docs/CONFIG.md#secrets), and runtime through the Control Web UI.
 
 ## MCP Integration
 
@@ -80,8 +80,15 @@ Configure alternative images through TOML, CLI flags, or environment variables:
 [leash]
 codex = true
 
+[secrets]
+SECRET_API_TOKEN = "sk-config"
+
 [projects."/absolute/path/to/project"]
 target_image = "ghcr.io/example/dev:latest"
+
+[projects."${HOME}/src/leash".secret]
+PROJECT_SPECIFIC_API_KEY1 = "sk-party-time"
+PROJECT_SPECIFIC_API_KEY2 = "${EXISTING_ENV_VAR_NAME}"
 
 [projects."/absolute/path/to/project".volumes]
 "~/devtools" = "/workspace/devtools:rw"

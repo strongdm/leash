@@ -42,6 +42,12 @@ func TestLoadMissingFileReturnsDefaults(t *testing.T) {
 	if len(cfg.ProjectEnvVars) != 0 {
 		t.Fatalf("expected no project env vars, got %v", cfg.ProjectEnvVars)
 	}
+	if len(cfg.Secrets) != 0 {
+		t.Fatalf("expected no global secrets, got %v", cfg.Secrets)
+	}
+	if len(cfg.ProjectSecrets) != 0 {
+		t.Fatalf("expected no project secrets, got %v", cfg.ProjectSecrets)
+	}
 }
 
 // This test writes config files to a temporary home and should be serial to
@@ -66,6 +72,12 @@ func TestSaveRoundTripPersistsGlobalAndProject(t *testing.T) {
 	if err := cfg.SetProjectEnvVar(projectPath, "PROJECT_KEY", "project-value"); err != nil {
 		t.Fatalf("SetProjectEnvVar: %v", err)
 	}
+	if err := cfg.SetGlobalSecret("GLOBAL_SECRET", "global-secret-value"); err != nil {
+		t.Fatalf("SetGlobalSecret: %v", err)
+	}
+	if err := cfg.SetProjectSecret(projectPath, "PROJECT_SECRET", "project-secret-value"); err != nil {
+		t.Fatalf("SetProjectSecret: %v", err)
+	}
 	if err := Save(cfg); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -86,6 +98,12 @@ func TestSaveRoundTripPersistsGlobalAndProject(t *testing.T) {
 	}
 	if !bytes.Contains(data, []byte("PROJECT_KEY = 'project-value'")) {
 		t.Fatalf("expected project env vars in config, got:\n%s", data)
+	}
+	if !bytes.Contains(data, []byte("[secrets]\nGLOBAL_SECRET = 'global-secret-value'")) {
+		t.Fatalf("expected global secrets in config, got:\n%s", data)
+	}
+	if !bytes.Contains(data, []byte("PROJECT_SECRET = 'project-secret-value'")) {
+		t.Fatalf("expected project secrets in config, got:\n%s", data)
 	}
 
 	loaded, err := Load()
@@ -116,6 +134,17 @@ func TestSaveRoundTripPersistsGlobalAndProject(t *testing.T) {
 	}
 	if got := resolved["PROJECT_KEY"]; got.Value != "project-value" || got.Scope != ScopeProject {
 		t.Fatalf("expected PROJECT_KEY from project scope, got %+v", got)
+	}
+
+	secrets, err := loaded.ResolveSecrets(projectPath)
+	if err != nil {
+		t.Fatalf("ResolveSecrets: %v", err)
+	}
+	if got := secrets["GLOBAL_SECRET"]; got.Value != "global-secret-value" || got.Scope != ScopeGlobal {
+		t.Fatalf("expected GLOBAL_SECRET from global scope, got %+v", got)
+	}
+	if got := secrets["PROJECT_SECRET"]; got.Value != "project-secret-value" || got.Scope != ScopeProject {
+		t.Fatalf("expected PROJECT_SECRET from project scope, got %+v", got)
 	}
 }
 
@@ -191,13 +220,19 @@ func TestEnvVarConfigPrecedenceAndParsing(t *testing.T) {
 A = "B"
 BOO = "MOO"
 
+[secrets]
+API_TOKEN = "global-secret"
+
 [projects.'%s'.envvars]
 SKR = "UMP"
 A = "DUMP"
 
+[projects.'%s'.secrets]
+API_TOKEN = "project-secret"
+
 [projects.'%s'.envvars]
 ZED = "ZAP"
-`, project, otherProject)
+`, project, project, otherProject)
 
 	dir, file, err := GetConfigPath()
 	if err != nil {
@@ -275,6 +310,33 @@ ZED = "ZAP"
 	}
 	if _, ok := globalOnly["ZED"]; ok {
 		t.Fatalf("did not expect ZED in global-only resolution, got %+v", globalOnly)
+	}
+
+	if got := cfg.Secrets["API_TOKEN"]; got != "global-secret" {
+		t.Fatalf("global secret mismatch: got %q want %q", got, "global-secret")
+	}
+	projectSecrets := cfg.ProjectSecrets[project]
+	if projectSecrets == nil {
+		t.Fatalf("expected project secrets map for %s", project)
+	}
+	if got := projectSecrets["API_TOKEN"]; got != "project-secret" {
+		t.Fatalf("project secret mismatch: got %q want %q", got, "project-secret")
+	}
+
+	resolvedSecrets, err := cfg.ResolveSecrets(project)
+	if err != nil {
+		t.Fatalf("ResolveSecrets(project): %v", err)
+	}
+	if got := resolvedSecrets["API_TOKEN"]; got.Value != "project-secret" || got.Scope != ScopeProject {
+		t.Fatalf("expected project secret precedence, got %+v", got)
+	}
+
+	globalSecrets, err := cfg.ResolveSecrets("")
+	if err != nil {
+		t.Fatalf("ResolveSecrets(global): %v", err)
+	}
+	if got := globalSecrets["API_TOKEN"]; got.Value != "global-secret" || got.Scope != ScopeGlobal {
+		t.Fatalf("expected global secret when no project, got %+v", got)
 	}
 }
 

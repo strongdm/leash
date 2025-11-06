@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/strongdm/leash/internal/configstore"
 	"github.com/strongdm/leash/internal/leashd/listen"
 )
 
@@ -216,5 +217,36 @@ func TestSecretEnvScript(t *testing.T) {
 	r.secretPlaceholders = nil
 	if script := r.secretEnvScript(); script != "export ENV=/etc/ksh.kshrc\n" {
 		t.Fatalf("expected base script for empty placeholders, got %q", script)
+	}
+}
+
+func TestMergeSecretSpecsPrecedence(t *testing.T) {
+	t.Parallel()
+
+	configSecrets := map[string]configstore.SecretValue{
+		"API_TOKEN": {Value: "config-api", Scope: configstore.ScopeGlobal},
+		"FOO":       {Value: "config-foo", Scope: configstore.ScopeGlobal},
+	}
+
+	cli := []secretSpec{
+		{Key: "FOO", Value: "cli-foo"},
+		{Key: "BAR", Value: "cli-bar"},
+	}
+
+	merged := mergeSecretSpecs(cli, configSecrets)
+
+	want := []secretSpec{
+		{Key: "API_TOKEN", Value: "config-api"},
+		{Key: "FOO", Value: "cli-foo"},
+		{Key: "BAR", Value: "cli-bar"},
+	}
+
+	if len(merged) != len(want) {
+		t.Fatalf("expected %d secrets, got %d", len(want), len(merged))
+	}
+	for i := range want {
+		if merged[i] != want[i] {
+			t.Fatalf("secret %d mismatch: got %+v want %+v", i, merged[i], want[i])
+		}
 	}
 }

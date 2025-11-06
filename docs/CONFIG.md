@@ -52,6 +52,25 @@ Running Leash from `/Users/alice/src/app` generates the following effective set 
 
 Only the last value for a given key is emitted, so the CLI example above would replace the project-scoped `DOTENV_PATH` while preserving `OPENAI_API_KEY` and `BACKEND_URL`.
 
+## Secrets
+
+Use the `[secrets]` table to persist secrets that should be registered with `leashd` automatically, and `[projects."/abs/path".secrets]` for project-specific overrides. Entries follow the same precedence rules as environment variables (project > global), while the CLI `-s/--secret KEY=VALUE` flag always wins over persisted values.
+
+```toml
+[secrets]
+API_TOKEN = "sk-config"
+
+[projects."$HOME/src/app".secrets]
+API_TOKEN1 = "sk-project"
+API_TOKEN2 = "${EXISTING_ENV_VAR}"
+API_TOKEN3 = "\\$LITERAL_STRING"
+INTERNAL_KEY = "abc123"
+```
+
+Running `leash -- codex shell` from `$HOME/src/app` registers `API_TOKEN=sk-project` and `INTERNAL_KEY=abc123`. Executing from another directory falls back to the global `API_TOKEN`. Adding `-s API_TOKEN=override` on the CLI overrides both config entries for that invocation.
+
+See also: [SECRETS.md](design/SECRETS.md)
+
 ## Supported Tools
 
 Leash automatically manages mounts for the following subcommands:
