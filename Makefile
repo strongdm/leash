@@ -275,7 +275,7 @@ build: precommit ## Build the leash binary
 	done
 
 .PHONY: test
-test: test-unit test-e2e test-web ## Run entire test suite
+test: test-unit test-e2e test-ui ## Run entire test suite
 	@echo 'all tests completed'
 
 ifeq ($(filter 1 true True TRUE yes Yes YES on On ON,$(VERBOSE)),)
@@ -290,8 +290,8 @@ test-unit test-go: precommit ## Run Go unit tests (after UI build + LSM-generate
 	@go test $(GO_TEST_FLAGS) ./...
 
 # Runs JS/TS tests in Control UI if a test script exists; otherwise skips gracefully.
-.PHONY: test-web
-test-web: ## Run web frontend tests
+.PHONY: test-ui test-web
+test-ui test-web: ## Run web frontend tests
 	@echo 'checking for web tests...'
 	@if [ -f controlui/web/package.json ] && grep -q '"test"\s*:' controlui/web/package.json; then \
 	  echo 'installing web deps...'; \
