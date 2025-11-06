@@ -8,6 +8,9 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -94,6 +97,7 @@ type options struct {
 	verbose        bool
 	volumes        []string
 	envVars        []string
+	secretSpecs    []secretSpec
 	command        []string
 	subcommand     string
 	targetImage    string
@@ -103,6 +107,11 @@ type options struct {
 	openUI         bool
 	publishes      []publishSpec
 	publishAll     bool
+}
+
+type secretSpec struct {
+	Key   string
+	Value string
 }
 
 type config struct {
@@ -145,10 +154,11 @@ type runner struct {
 	shareDirCreated bool
 	keepContainers  bool
 
-	logger        *log.Logger
-	mountState    *mountState
-	sessionID     string
-	workspaceHash string
+	logger             *log.Logger
+	mountState         *mountState
+	secretPlaceholders map[string]string
+	sessionID          string
+	workspaceHash      string
 
 	targetNameAttempt int
 	leashNameAttempt  int
@@ -309,6 +319,7 @@ Flags:
   -o, --open                      Open Control UI in default browser once ready.
   -v, --volume <src:dst[:ro]>     Bind mount to pass through to the target container (repeatable).
   -e, --env <key[=value]>         Set environment variables inside the leash containers (repeatable).
+  -s, --secret KEY=VALUE          Register a secret with the target runtime (repeatable).
   -p, --publish <[ip:]host:container[/proto]>   Publish a container port to the host (repeatable). Examples: -p 3000, -p 8000:3000, -p 127.0.0.1:3000:3000, -p :3000, -p 3000/udp
   -P, --publish-all               Publish all EXPOSEd ports (host same as container when free, auto-bump on conflicts).
   --image <name[:tag]>            Override the target container image (defaults to %s).
@@ -360,6 +371,15 @@ func parseArgs(args []string) (options, error) {
 			}
 			value := args[i+1]
 			if err := appendEnvSpec(&opts, value); err != nil {
+				return opts, err
+			}
+			i++
+		case "-s", "--secret":
+			if i+1 >= len(args) {
+				return opts, fmt.Errorf("missing argument for %s", arg)
+			}
+			value := args[i+1]
+			if err := appendSecretSpec(&opts, value); err != nil {
 				return opts, err
 			}
 			i++
@@ -492,6 +512,16 @@ func parseArgs(args []string) (options, error) {
 				if err := appendEnvSpec(&opts, value); err != nil {
 					return opts, err
 				}
+			case strings.HasPrefix(arg, "-s="):
+				value := strings.TrimPrefix(arg, "-s=")
+				if err := appendSecretSpec(&opts, value); err != nil {
+					return opts, err
+				}
+			case strings.HasPrefix(arg, "--secret="):
+				value := strings.TrimPrefix(arg, "--secret=")
+				if err := appendSecretSpec(&opts, value); err != nil {
+					return opts, err
+				}
 			case strings.HasPrefix(arg, "-V="):
 				if strings.TrimPrefix(arg, "-V=") != "" {
 					return opts, fmt.Errorf("-V does not take a value")
@@ -530,6 +560,54 @@ func appendEnvSpec(opts *options, spec string) error {
 
 	opts.envVars = append(opts.envVars, spec)
 	return nil
+}
+
+func appendSecretSpec(opts *options, raw string) error {
+	spec, err := parseSecretSpec(raw)
+	if err != nil {
+		return err
+	}
+	opts.secretSpecs = append(opts.secretSpecs, spec)
+	return nil
+}
+
+func parseSecretSpec(raw string) (secretSpec, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return secretSpec{}, fmt.Errorf("secret specification cannot be empty")
+	}
+	sep := strings.IndexRune(value, '=')
+	if sep == -1 {
+		return secretSpec{}, fmt.Errorf("secret specification must be in KEY=VALUE form")
+	}
+	key := strings.TrimSpace(value[:sep])
+	if key == "" {
+		return secretSpec{}, fmt.Errorf("secret key must not be empty")
+	}
+	if !isValidSecretKey(key) {
+		return secretSpec{}, fmt.Errorf("secret key %q must only contain letters, digits, or underscore", key)
+	}
+	return secretSpec{
+		Key:   key,
+		Value: value[sep+1:],
+	}, nil
+}
+
+func isValidSecretKey(key string) bool {
+	if key == "" {
+		return false
+	}
+	for _, r := range key {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '_':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func envSpecKey(spec string) string {
@@ -1208,6 +1286,14 @@ func (r *runner) startContainers(ctx context.Context) error {
 		if r.logger != nil {
 			r.logger.Printf("Warning: failed to install leash prompt: %v", err)
 		}
+	}
+
+	if err := r.registerSecrets(ctx); err != nil {
+		return r.finishLifecycle(ctx, 0, err)
+	}
+
+	if err := r.installSecretEnv(ctx); err != nil {
+		return r.finishLifecycle(ctx, 0, err)
 	}
 
 	if r.cfg.listenCfg.Disable {
@@ -2434,7 +2520,9 @@ func (r *runner) detectShell(ctx context.Context) (string, error) {
 }
 
 func (r *runner) execNonInteractive(ctx context.Context, shellBin, cmd string) (int, error) {
-	dockerArgs := []string{"exec", "-i", "-w", r.cfg.callerDir, r.cfg.targetContainer, shellBin, "-lc", "exec " + cmd}
+	dockerArgs := []string{"exec", "-i", "-w", r.cfg.callerDir}
+	dockerArgs = append(dockerArgs, r.secretEnvDockerArgs()...)
+	dockerArgs = append(dockerArgs, r.cfg.targetContainer, shellBin, "-lc", "exec "+cmd)
 	execCmd := exec.CommandContext(ctx, "docker", dockerArgs...)
 	execCmd.Stdin = os.Stdin
 	execCmd.Stdout = os.Stdout
@@ -2486,7 +2574,9 @@ func (r *runner) execInteractive(shellBin, cmd string) (int, error) {
 	}
 	defer os.Remove(tmp.Name())
 
-	args := []string{"exec", "-it", "-w", r.cfg.callerDir, r.cfg.targetContainer, shellBin, "-lc", "exec " + cmd}
+	args := []string{"exec", "-it", "-w", r.cfg.callerDir}
+	args = append(args, r.secretEnvDockerArgs()...)
+	args = append(args, r.cfg.targetContainer, shellBin, "-lc", "exec "+cmd)
 	execCmd := exec.Command("docker", args...)
 	execCmd.Stdin = os.Stdin
 	execCmd.Stdout = os.Stdout
@@ -2714,6 +2804,226 @@ fi`
 		return fmt.Errorf("install zsh hook: %w", err)
 	}
 
+	return nil
+}
+
+func (r *runner) registerSecrets(ctx context.Context) error {
+	r.secretPlaceholders = nil
+	if len(r.opts.secretSpecs) == 0 {
+		return nil
+	}
+	if r.cfg.listenCfg.Disable {
+		return fmt.Errorf("secrets require the Control UI to be enabled; provide --listen when using -s/--secret")
+	}
+
+	baseURL, err := r.controlAPIBaseURL()
+	if err != nil {
+		return err
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	placeholders := make(map[string]string, len(r.opts.secretSpecs))
+
+	for _, spec := range r.opts.secretSpecs {
+		placeholder, err := r.postSecret(ctx, client, baseURL, spec)
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(placeholder) == "" {
+			return fmt.Errorf("secret %q returned an empty placeholder", spec.Key)
+		}
+		placeholders[spec.Key] = placeholder
+	}
+
+	if len(placeholders) == 0 {
+		return fmt.Errorf("no secrets registered; verify at least one -s/--secret flag is provided")
+	}
+
+	r.secretPlaceholders = placeholders
+	return nil
+}
+
+func (r *runner) controlAPIBaseURL() (*url.URL, error) {
+	if r.cfg.listenCfg.Disable {
+		return nil, fmt.Errorf("control UI is disabled; provide --listen when using secrets")
+	}
+
+	host := strings.TrimSpace(r.cfg.listenCfg.Host)
+	switch host {
+	case "", "0.0.0.0":
+		host = "127.0.0.1"
+	case "::", "[::]":
+		host = "::1"
+	}
+	host = strings.Trim(host, "[]")
+
+	port := strings.TrimSpace(r.cfg.listenCfg.Port)
+	if port == "" {
+		return nil, fmt.Errorf("control UI port is unavailable; ensure --listen is configured")
+	}
+
+	return &url.URL{
+		Scheme: "http",
+		Host:   net.JoinHostPort(host, port),
+	}, nil
+}
+
+func (r *runner) postSecret(ctx context.Context, client *http.Client, base *url.URL, spec secretSpec) (string, error) {
+	target := base.ResolveReference(&url.URL{Path: "/api/secrets/" + spec.Key})
+	payload := map[string]string{
+		"id":    spec.Key,
+		"value": spec.Value,
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("encode secret payload for %q: %w", spec.Key, err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target.String(), bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("create secret request for %q: %w", spec.Key, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("register secret %q: %w", spec.Key, err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var decoded struct {
+			Placeholder string `json:"placeholder"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+			return "", fmt.Errorf("decode secret registration response for %q: %w", spec.Key, err)
+		}
+		return strings.TrimSpace(decoded.Placeholder), nil
+	case http.StatusConflict:
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return r.fetchSecretPlaceholder(ctx, client, base, spec.Key)
+	default:
+		message := readResponseMessage(resp)
+		if message == "" {
+			message = "no response body"
+		}
+		return "", fmt.Errorf("register secret %q failed: %s (%s)", spec.Key, resp.Status, message)
+	}
+}
+
+func (r *runner) fetchSecretPlaceholder(ctx context.Context, client *http.Client, base *url.URL, key string) (string, error) {
+	target := base.ResolveReference(&url.URL{Path: "/api/secrets"})
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target.String(), nil)
+	if err != nil {
+		return "", fmt.Errorf("create placeholder lookup for %q: %w", key, err)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("lookup placeholder for %q: %w", key, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		message := readResponseMessage(resp)
+		if message == "" {
+			message = "no response body"
+		}
+		return "", fmt.Errorf("lookup placeholder for %q failed: %s (%s)", key, resp.Status, message)
+	}
+
+	var decoded map[string]struct {
+		Placeholder string `json:"placeholder"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+		return "", fmt.Errorf("decode placeholder response for %q: %w", key, err)
+	}
+	entry, ok := decoded[key]
+	if !ok {
+		return "", fmt.Errorf("secret %q not found when resolving placeholder", key)
+	}
+	placeholder := strings.TrimSpace(entry.Placeholder)
+	if placeholder == "" {
+		return "", fmt.Errorf("secret %q has no placeholder in server response", key)
+	}
+	return placeholder, nil
+}
+
+func readResponseMessage(resp *http.Response) string {
+	const limit = 4096
+	data, err := io.ReadAll(io.LimitReader(resp.Body, limit))
+	if err != nil {
+		return fmt.Sprintf("failed to read response body: %v", err)
+	}
+	return strings.TrimSpace(string(data))
+}
+
+func (r *runner) secretEnvDockerArgs() []string {
+	if len(r.secretPlaceholders) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(r.secretPlaceholders))
+	for key := range r.secretPlaceholders {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	args := make([]string, 0, len(keys)*2)
+	for _, key := range keys {
+		placeholder := strings.TrimSpace(r.secretPlaceholders[key])
+		if placeholder == "" {
+			continue
+		}
+		args = append(args, "-e", fmt.Sprintf("%s=%s", key, placeholder))
+	}
+	if len(args) == 0 {
+		return nil
+	}
+	return args
+}
+
+func (r *runner) secretEnvScript() string {
+	var builder strings.Builder
+	builder.WriteString("export ENV=/etc/ksh.kshrc\n")
+	if len(r.secretPlaceholders) == 0 {
+		return builder.String()
+	}
+
+	keys := make([]string, 0, len(r.secretPlaceholders))
+	for key := range r.secretPlaceholders {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	for _, key := range keys {
+		placeholder := strings.TrimSpace(r.secretPlaceholders[key])
+		if placeholder == "" {
+			continue
+		}
+		builder.WriteString("export ")
+		builder.WriteString(key)
+		builder.WriteString("=")
+		builder.WriteString(placeholder)
+		builder.WriteByte('\n')
+	}
+
+	return builder.String()
+}
+
+func (r *runner) installSecretEnv(ctx context.Context) error {
+	if len(r.secretPlaceholders) == 0 {
+		return nil
+	}
+
+	script := r.secretEnvScript()
+	if script == "" {
+		return nil
+	}
+
+	if err := r.execShellInTargetWithInput(ctx, "cat > /etc/profile.d/000-leash_env.sh && chmod 0644 /etc/profile.d/000-leash_env.sh", strings.NewReader(script)); err != nil {
+		return fmt.Errorf("install secret env script: %w", err)
+	}
 	return nil
 }
 

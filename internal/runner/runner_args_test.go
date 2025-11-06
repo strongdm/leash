@@ -166,6 +166,60 @@ func TestParseArgsEnvironmentMissingValue(t *testing.T) {
 	}
 }
 
+func TestParseArgsSecretFlags(t *testing.T) {
+	t.Parallel()
+
+	args := []string{
+		"-s", "API_TOKEN=abcd",
+		"--secret", "FOO=BAR",
+		"-s=BAZ=buzz",
+		"--secret=QUX=",
+		"-s", "FOO=override",
+	}
+
+	opts, err := parseArgs(args)
+	if err != nil {
+		t.Fatalf("parseArgs returned error: %v", err)
+	}
+
+	want := []secretSpec{
+		{Key: "API_TOKEN", Value: "abcd"},
+		{Key: "FOO", Value: "BAR"},
+		{Key: "BAZ", Value: "buzz"},
+		{Key: "QUX", Value: ""},
+		{Key: "FOO", Value: "override"},
+	}
+	if len(opts.secretSpecs) != len(want) {
+		t.Fatalf("unexpected secret spec count: got %d want %d", len(opts.secretSpecs), len(want))
+	}
+	for i := range want {
+		got := opts.secretSpecs[i]
+		if got.Key != want[i].Key || got.Value != want[i].Value {
+			t.Fatalf("secret spec %d mismatch: got %+v want %+v", i, got, want[i])
+		}
+	}
+}
+
+func TestParseArgsSecretInvalid(t *testing.T) {
+	t.Parallel()
+
+	if _, err := parseArgs([]string{"-s"}); err == nil {
+		t.Fatal("expected error for -s without value")
+	}
+
+	cases := [][]string{
+		{"-s", "INVALID"},
+		{"--secret", "=value"},
+		{"--secret", "bad-key=value"},
+	}
+	for _, args := range cases {
+		input := append(args, "--")
+		if _, err := parseArgs(input); err == nil {
+			t.Fatalf("expected error for args %v", input)
+		}
+	}
+}
+
 // This test manipulates process env variables to emulate Claude defaults; run
 // it serially to avoid leaking keys.
 func TestParseArgsAutoEnvClaude(t *testing.T) {
