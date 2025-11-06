@@ -350,6 +350,10 @@ _leash_prompt_install_bash_like() {
     PS1=$(_leash_prompt_render 'bash' "$leash_status")
   }
 
+  if [ -n "${BASH_VERSION-}" ]; then
+    export -f _leash_prompt_prompt_command >/dev/null 2>&1 || true
+  fi
+
   if [ -n "${PROMPT_COMMAND-}" ]; then
     PROMPT_COMMAND="_leash_prompt_prompt_command;${PROMPT_COMMAND}"
   else
