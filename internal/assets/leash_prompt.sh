@@ -6,9 +6,6 @@ _leash_prompt_main() {
   if [ "${LEASH_PROMPT_DISABLE:-0}" = "1" ]; then
     return
   fi
-  if [ "${LEASH_PROMPT_INITIALIZED:-0}" = "1" ]; then
-    return
-  fi
 
   # Only run in interactive shells.
   case ${-:-} in
@@ -23,10 +20,19 @@ _leash_prompt_main() {
   LEASH_PROMPT_SHELL="sh"
   if [ -n "${BASH_VERSION-}" ]; then
     LEASH_PROMPT_SHELL="bash"
+    if [ "${LEASH_PROMPT_INIT_BASH:-0}" = "1" ]; then
+      return
+    fi
   elif [ -n "${ZSH_VERSION-}" ]; then
     LEASH_PROMPT_SHELL="zsh"
+    if [ "${LEASH_PROMPT_INIT_ZSH:-0}" = "1" ]; then
+      return
+    fi
   elif [ -n "${KSH_VERSION-}" ]; then
     LEASH_PROMPT_SHELL="ksh"
+    if [ "${LEASH_PROMPT_INIT_KSH:-0}" = "1" ]; then
+      return
+    fi
   elif [ -n "${SHELL-}" ]; then
     LEASH_PROMPT_SHELL=$(basename "${SHELL}")
   fi
@@ -36,23 +42,25 @@ LEASH_PROMPT_COLOR_MODE=$(_leash_prompt_detect_color_mode)
   case ${LEASH_PROMPT_SHELL} in
   zsh)
     _leash_prompt_install_zsh
+    LEASH_PROMPT_INIT_ZSH=1
+    export LEASH_PROMPT_INIT_ZSH
     ;;
-  bash)
+  bash|dash|ash|sh)
     _leash_prompt_install_bash_like
-    ;;
-  dash)
-    _leash_prompt_install_bash_like
+    LEASH_PROMPT_INIT_BASH=1
+    export LEASH_PROMPT_INIT_BASH
     ;;
   ksh|mksh|ksh93)
     _leash_prompt_install_ksh
+    LEASH_PROMPT_INIT_KSH=1
+    export LEASH_PROMPT_INIT_KSH
     ;;
   *)
     _leash_prompt_install_bash_like
+    LEASH_PROMPT_INIT_BASH=1
+    export LEASH_PROMPT_INIT_BASH
     ;;
   esac
-
-  LEASH_PROMPT_INITIALIZED=1
-  export LEASH_PROMPT_INITIALIZED
 }
 
 _leash_prompt_detect_utf8() {
@@ -369,6 +377,9 @@ _leash_prompt_install_zsh() {
     zsh_status=$?
     # shellcheck disable=SC2034
     PROMPT=$(_leash_prompt_render 'zsh' "$zsh_status")
+    # RPROMPT must be cleared; otherwise existing right prompts linger and the
+    # leash prompt looks different from bash.
+    RPROMPT=""
   }
 
   if command -v add-zsh-hook >/dev/null 2>&1; then
@@ -387,6 +398,8 @@ _leash_prompt_install_zsh() {
       eval "precmd_functions=($precmd_functions)"
     fi
   fi
+
+  _leash_prompt_precmd
 }
 
 _leash_prompt_install_ksh() {

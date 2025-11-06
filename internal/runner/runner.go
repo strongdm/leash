@@ -2601,7 +2601,19 @@ func (r *runner) installPromptAssets(ctx context.Context) error {
 	}
 
 	zshHook := "\n# leash prompt\nif [ -f /etc/profile.d/000-leash_prompt.sh ]; then source /etc/profile.d/000-leash_prompt.sh; fi\n"
-	if err := r.execShellInTargetWithInput(ctx, "if [ -f /etc/zshrc ]; then if ! grep -F '/etc/profile.d/000-leash_prompt.sh' /etc/zshrc >/dev/null 2>&1; then cat >> /etc/zshrc; fi; fi", strings.NewReader(zshHook)); err != nil {
+	zshShellCmd := `target="/etc/zsh/zshrc"
+if [ ! -f "$target" ]; then
+  if [ -f /etc/zshrc ]; then
+    target="/etc/zshrc"
+  else
+    mkdir -p /etc/zsh
+    touch "$target"
+  fi
+fi
+if ! grep -F '/etc/profile.d/000-leash_prompt.sh' "$target" >/dev/null 2>&1; then
+  cat >> "$target"
+fi`
+	if err := r.execShellInTargetWithInput(ctx, zshShellCmd, strings.NewReader(zshHook)); err != nil {
 		return fmt.Errorf("install zsh hook: %w", err)
 	}
 
