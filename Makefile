@@ -44,20 +44,20 @@ help: ## List common make targets
 	@awk 'BEGIN {FS = ":.*##"; printf "\nAvailable targets:\n\n"} /^[a-zA-Z0-9][^:]*:.*##/ {printf "  %-24s %s\n", $$1, $$2}' $(MAKEFILE_LIST); \
 	printf '\n'
 
-.PHONY: precommit
-precommit: ## Configure git hooks for pre-commit guardrails
-	@# Protect against committing large binary files.
-	@git config --local core.hooksPath build/.hooks
-	@chmod a+x build/.hooks/pre-commit
-	@echo "git hooks path set to: $$(git config --get core.hooksPath)"
-
 .PHONY: fmt
-fmt: precommit ## Format Go sources with goimports
+fmt: ## Format Go sources with goimports
 	@echo 'running goimports...'
 	@command -v goimports >/dev/null 2>&1 || (echo 'installing goimports' && go install golang.org/x/tools/cmd/goimports@latest)
 	@GOIMPORTS_BIN="$$(command -v goimports || echo "$$(go env GOPATH)/bin/goimports")"; \
 	  FILES=$$(git ls-files '*.go' | grep -v '^\.scratch/'); \
 	  if [ -n "$$FILES" ]; then $$GOIMPORTS_BIN -w $$FILES; fi
+
+.PHONY: precommit
+precommit: fmt ## Configure git hooks for pre-commit guardrails
+	@# Protect against committing large binary files.
+	@git config --local core.hooksPath build/.hooks
+	@chmod a+x build/.hooks/pre-commit
+	@echo "git hooks path set to: $$(git config --get core.hooksPath)"
 
 .PHONY: lsm-generate
 lsm-generate: ## Generate LSM eBPF artifacts on the host system
@@ -316,7 +316,6 @@ test-e2e: test-deps ## Run integration tests via test_e2e.sh
 
 .PHONY: clean-go
 clean-go:
-	@go clean -cache
 	@# Go cache can get in a broken state, so.
 	@go clean -cache
 	@# Build artifacts.
