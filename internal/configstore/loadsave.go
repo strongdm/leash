@@ -48,7 +48,14 @@ func decodeConfig(data []byte, path string, cfg *Config) error {
 	cfg.ensureInitialized()
 
 	var raw map[string]any
-	if err := toml.Unmarshal(data, &raw); err != nil {
+	err := toml.Unmarshal(data, &raw)
+	if err != nil && needsDollarEscapeFix(err) {
+		if fixed, changed := sanitizeDollarEscapes(data); changed {
+			data = fixed
+			err = toml.Unmarshal(data, &raw)
+		}
+	}
+	if err != nil {
 		var decodeErr *toml.DecodeError
 		if errors.As(err, &decodeErr) {
 			return &ParseError{Path: path, Err: decodeErr}
@@ -95,7 +102,7 @@ func decodeConfig(data []byte, path string, cfg *Config) error {
 			if trimmedKey == "" {
 				continue
 			}
-			cfg.Secrets[trimmedKey] = strVal
+			cfg.Secrets[trimmedKey] = expandConfigValue(strVal)
 		}
 	}
 
@@ -184,7 +191,7 @@ func decodeConfig(data []byte, path string, cfg *Config) error {
 						if trimmedKey == "" {
 							continue
 						}
-						projectSecrets[trimmedKey] = strVal
+						projectSecrets[trimmedKey] = expandConfigValue(strVal)
 					}
 				default:
 					if _, supported := supportedCommands[key]; supported {
