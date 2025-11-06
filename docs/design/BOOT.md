@@ -1,18 +1,15 @@
-# Bootstrap-Oriented Orchestration (BOO)
+# Bootstrap-Oriented OrchesTration (BOOT)
 
 ## Overview
 
-Bootstrap-Oriented Orchestration (BOOT) is the production lifecycle for Leash.
-The daemon now enters a staging mode on start-up, waiting for the agent-side
-`leash-entry` bootstrap to complete (CA install, helper expansion, readiness
-checks) before it attaches LSM programs or starts the MITM proxy. The handshake
-is mediated through `bootstrap.ready` on the shared `/leash` volume and
-guarantees that policy enforcement never races ahead of the prerequisites that
-make TLS interception succeed.
+BOOT ensures enforcement follows readiness. On startup, `leashd` waits for
+`leash-entry` to install the CA, prepare helpers, and write
+/leash/bootstrap.ready; only then does it attach LSM programs and start the
+MITM proxy. This ordered handshake prevents TLS interception races.
 
 Key properties:
 
-- Deterministic lifecycle: bootstrap → acknowledge → enforcement → steady state.
+- Deterministic sequence: bootstrap → acknowledge → enforcement → steady state.
 - Unambiguous failure surface: a missing or stale bootstrap signal results in a
   controlled teardown and an actionable user error, rather than latent TLS
   failures.
@@ -21,7 +18,7 @@ Key properties:
 
 ## Lifecycle
 
-### Lifecycle Phases
+### Phases
 
 1. **Staging** — Daemon starts with logging/UI but skips LSM attach, MITM proxy,
    and BPF map loads. It polls for a bootstrap marker.
@@ -67,14 +64,14 @@ stateDiagram-v2
 
 ## Core Concepts & Files
 
-| Concept           | Description                                                                 | Notes                                                         |
-|-------------------|-----------------------------------------------------------------------------|---------------------------------------------------------------|
-| Runner            | CLI orchestrator. Launches containers, watches bootstrap status, tears down on failure. | Gains bootstrap timeout logic and clearer error messaging.    |
-| `leash-entry`     | Agent-side bootstrapper. Responsible for CA install and creating `bootstrap.ready`. | Fails fast on bootstrap issues and exits non-zero.            |
-| Leash daemon      | Enforcement engine. Adds staging phase and defers policy attach until handshake. | Drops any stale marker, polls for new one, enforces timeouts. |
-| Public volume     | `/leash` bind mount shared by manager and target.                           | Stores `leash-entry.ready`, `bootstrap.ready`, `cgroup-path`, and `ca-cert.pem` (0644). |
-| Private volume    | `/leash-private` bind mount visible only to the manager.                    | Stores `ca-key.pem` (0600); runner enforces 0700 dir perms before launch. |
-| Marker file       | `bootstrap.ready` (JSON with PID/hostname/timestamp).                        | Created atomically to avoid partial writes; cleared on start. |
+| Concept        | Description                                                                             | Notes                                                                                   |
+|----------------|-----------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------|
+| Runner         | CLI orchestrator. Launches containers, watches bootstrap status, tears down on failure. | Gains bootstrap timeout logic and clearer error messaging.                              |
+| `leash-entry`  | Agent-side bootstrapper. Responsible for CA install and creating `bootstrap.ready`.     | Fails fast on bootstrap issues and exits non-zero.                                      |
+| Leash daemon   | Enforcement engine. Adds staging phase and defers policy attach until handshake.        | Drops any stale marker, polls for new one, enforces timeouts.                           |
+| Public volume  | `/leash` bind mount shared by manager and target.                                       | Stores `leash-entry.ready`, `bootstrap.ready`, `cgroup-path`, and `ca-cert.pem` (0644). |
+| Private volume | `/leash-private` bind mount visible only to the manager.                                | Stores `ca-key.pem` (0600); runner enforces 0700 dir perms before launch.               |
+| Marker file    | `bootstrap.ready` (JSON with PID/hostname/timestamp).                                   | Created atomically to avoid partial writes; cleared on start.                           |
 
 ## Failure Handling
 
