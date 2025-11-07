@@ -59,7 +59,7 @@ Choose whether to remember that decision globally, for the current project, or j
 - **Agent container** runs your command with the current directory bind-mounted, so tools see the same file tree they would on the host.
 - **Leash container** monitors system calls, applies Cedar policies, and exposes the Control UI at http://localhost:18080 (use `--open` to launch it automatically).
 - **Mount prompts** remember whether to forward host agent credentials (see [CONFIG.md](docs/CONFIG.md)).
-- **Environment forwarding** maps common API keys automatically: `ANTHROPIC_API_KEY` for `claude`, `OPENAI_API_KEY` for `codex`, `GEMINI_API_KEY` for `gemini`, and `DASHSCOPE_API_KEY` for `qwen`.
+- **Environment forwarding** captures comon agentic coder API keys as secrets automatically (e.g. `ANTHROPIC_API_KEY` -> `claude`, `OPENAI_API_KEY` -> `codex`, etc.).  Even Claude won't know your ANTHROPIC_API_KEY!
 - **Secure secrets injection** via [cli](docs/design/SECRETS.md), [configuration](docs/CONFIG.md#secrets), and runtime through the Control Web UI.
 
 ## MCP Integration

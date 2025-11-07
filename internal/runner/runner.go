@@ -237,6 +237,11 @@ func execute(cmdName string, args []string) error {
 		return err
 	}
 
+	cliLayer := cliEnvLayer(opts.envVars)
+	if autoSecrets := autoSecretSpecs(opts.subcommand, cliLayer, opts.secretSpecs, configSecrets); len(autoSecrets) > 0 {
+		opts.secretSpecs = append(opts.secretSpecs, autoSecrets...)
+	}
+
 	opts.envVars = resolveEnvVars(opts.envVars, configEnv, opts.subcommand)
 	opts.secretSpecs = mergeSecretSpecs(opts.secretSpecs, configSecrets)
 
@@ -708,6 +713,52 @@ func resolveEnvVars(cliSpecs []string, configEnv map[string]configstore.EnvVarVa
 	return configstore.MergeEnvLayers(layers...)
 }
 
+func autoSecretSpecs(subcommand string, cliLayer configstore.EnvLayer, cliSecrets []secretSpec, configSecrets map[string]configstore.SecretValue) []secretSpec {
+	keys, ok := autoEnvForCommand[subcommand]
+	if !ok || len(keys) == 0 {
+		return nil
+	}
+
+	skip := make(map[string]struct{})
+	for key := range cliLayer.Specs {
+		skip[key] = struct{}{}
+	}
+	for _, spec := range cliSecrets {
+		skip[spec.Key] = struct{}{}
+	}
+	for raw := range configSecrets {
+		key := strings.TrimSpace(raw)
+		if key == "" {
+			continue
+		}
+		skip[key] = struct{}{}
+	}
+
+	seen := make(map[string]struct{})
+	result := make([]secretSpec, 0, len(keys))
+
+	for _, key := range keys {
+		if !isSecretManagedKey(key) {
+			continue
+		}
+		if _, excluded := skip[key]; excluded {
+			continue
+		}
+		if _, already := seen[key]; already {
+			continue
+		}
+		if value, present := os.LookupEnv(key); present {
+			result = append(result, secretSpec{Key: key, Value: value})
+			seen[key] = struct{}{}
+		}
+	}
+
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
 func autoEnvLayer(subcommand string, cliLayer configstore.EnvLayer) configstore.EnvLayer {
 	keys, ok := autoEnvForCommand[subcommand]
 	// Keep going even when the command maps to an empty slice so that claude's
@@ -725,6 +776,9 @@ func autoEnvLayer(subcommand string, cliLayer configstore.EnvLayer) configstore.
 	order := make([]string, 0, len(keys)+1)
 
 	for _, key := range keys {
+		if isSecretManagedKey(key) {
+			continue
+		}
 		if _, dup := skip[key]; dup {
 			continue
 		}
@@ -754,6 +808,15 @@ func autoEnvLayer(subcommand string, cliLayer configstore.EnvLayer) configstore.
 		Specs: specs,
 		Order: order,
 	}
+}
+
+func isSecretManagedKey(key string) bool {
+	for _, candidate := range autoEnvForCommand["opencode"] {
+		if candidate == key {
+			return true
+		}
+	}
+	return false
 }
 
 func configEnvLayers(configEnv map[string]configstore.EnvVarValue) (configstore.EnvLayer, configstore.EnvLayer) {

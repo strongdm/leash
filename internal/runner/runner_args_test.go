@@ -232,9 +232,14 @@ func TestParseArgsAutoEnvClaude(t *testing.T) {
 		t.Fatalf("parseArgs returned error: %v", err)
 	}
 
+	layer := cliEnvLayer(opts.envVars)
+	auto := autoSecretSpecs(opts.subcommand, layer, opts.secretSpecs, nil)
+	if !containsSecret(auto, "ANTHROPIC_API_KEY", "anthropic-secret") {
+		t.Fatalf("expected ANTHROPIC_API_KEY to be captured as secret, got %+v", auto)
+	}
 	final := resolveEnvVars(opts.envVars, nil, opts.subcommand)
-	if !containsEnv(final, "ANTHROPIC_API_KEY=anthropic-secret") {
-		t.Fatalf("expected ANTHROPIC_API_KEY to be injected, got %v", final)
+	if containsEnvWithKey(final, "ANTHROPIC_API_KEY") {
+		t.Fatalf("expected ANTHROPIC_API_KEY to be excluded from env vars, got %v", final)
 	}
 }
 
@@ -293,9 +298,14 @@ func TestParseArgsAutoEnvCodex(t *testing.T) {
 		t.Fatalf("parseArgs returned error: %v", err)
 	}
 
+	layer := cliEnvLayer(opts.envVars)
+	auto := autoSecretSpecs(opts.subcommand, layer, opts.secretSpecs, nil)
+	if !containsSecret(auto, "OPENAI_API_KEY", "openai-secret") {
+		t.Fatalf("expected OPENAI_API_KEY to be captured as secret, got %+v", auto)
+	}
 	final := resolveEnvVars(opts.envVars, nil, opts.subcommand)
-	if !containsEnv(final, "OPENAI_API_KEY=openai-secret") {
-		t.Fatalf("expected OPENAI_API_KEY to be injected, got %v", final)
+	if containsEnvWithKey(final, "OPENAI_API_KEY") {
+		t.Fatalf("expected OPENAI_API_KEY to be excluded from env vars, got %v", final)
 	}
 }
 
@@ -317,6 +327,11 @@ func TestParseArgsAutoEnvSkipsWhenProvided(t *testing.T) {
 	if len(opts.envVars) != 1 {
 		t.Fatalf("expected host ANTHROPIC_API_KEY to be ignored due to override, got %v", opts.envVars)
 	}
+	layer := cliEnvLayer(opts.envVars)
+	auto := autoSecretSpecs(opts.subcommand, layer, opts.secretSpecs, nil)
+	if len(auto) != 0 {
+		t.Fatalf("expected no auto secrets when CLI override is provided, got %+v", auto)
+	}
 	final := resolveEnvVars(opts.envVars, nil, opts.subcommand)
 	if !containsEnv(final, "ANTHROPIC_API_KEY=custom") {
 		t.Fatalf("expected resolved env to include custom key, got %v", final)
@@ -335,9 +350,14 @@ func TestParseArgsAutoEnvQwen(t *testing.T) {
 		t.Fatalf("parseArgs returned error: %v", err)
 	}
 
+	layer := cliEnvLayer(opts.envVars)
+	auto := autoSecretSpecs(opts.subcommand, layer, opts.secretSpecs, nil)
+	if !containsSecret(auto, "DASHSCOPE_API_KEY", "dash-secret") {
+		t.Fatalf("expected DASHSCOPE_API_KEY to be captured as secret, got %+v", auto)
+	}
 	final := resolveEnvVars(opts.envVars, nil, opts.subcommand)
-	if !containsEnv(final, "DASHSCOPE_API_KEY=dash-secret") {
-		t.Fatalf("expected DASHSCOPE_API_KEY to be injected, got %v", final)
+	if containsEnvWithKey(final, "DASHSCOPE_API_KEY") {
+		t.Fatalf("expected DASHSCOPE_API_KEY to be excluded from env vars, got %v", final)
 	}
 }
 
@@ -350,9 +370,14 @@ func TestParseArgsAutoEnvGemini(t *testing.T) {
 		t.Fatalf("parseArgs returned error: %v", err)
 	}
 
+	layer := cliEnvLayer(opts.envVars)
+	auto := autoSecretSpecs(opts.subcommand, layer, opts.secretSpecs, nil)
+	if !containsSecret(auto, "GEMINI_API_KEY", "gemini-secret") {
+		t.Fatalf("expected GEMINI_API_KEY to be captured as secret, got %+v", auto)
+	}
 	final := resolveEnvVars(opts.envVars, nil, opts.subcommand)
-	if !containsEnv(final, "GEMINI_API_KEY=gemini-secret") {
-		t.Fatalf("expected GEMINI_API_KEY to be injected, got %v", final)
+	if containsEnvWithKey(final, "GEMINI_API_KEY") {
+		t.Fatalf("expected GEMINI_API_KEY to be excluded from env vars, got %v", final)
 	}
 }
 
@@ -368,24 +393,29 @@ func TestParseArgsAutoEnvOpenCode(t *testing.T) {
 		t.Fatalf("parseArgs returned error: %v", err)
 	}
 
+	layer := cliEnvLayer(opts.envVars)
+	auto := autoSecretSpecs(opts.subcommand, layer, opts.secretSpecs, nil)
+	if !containsSecret(auto, "ANTHROPIC_API_KEY", "anthropic-secret") {
+		t.Fatalf("expected ANTHROPIC_API_KEY to be captured as secret, got %+v", auto)
+	}
+	if !containsSecret(auto, "GEMINI_API_KEY", "gemini-secret") {
+		t.Fatalf("expected GEMINI_API_KEY to be captured as secret, got %+v", auto)
+	}
 	final := resolveEnvVars(opts.envVars, nil, opts.subcommand)
-	if !containsEnv(final, "ANTHROPIC_API_KEY=anthropic-secret") {
-		t.Fatalf("expected ANTHROPIC_API_KEY to be injected, got %v", final)
+	if containsEnvWithKey(final, "ANTHROPIC_API_KEY") {
+		t.Fatalf("did not expect ANTHROPIC_API_KEY in env vars, got %v", final)
 	}
-	if !containsEnv(final, "GEMINI_API_KEY=gemini-secret") {
-		t.Fatalf("expected GEMINI_API_KEY to be injected, got %v", final)
-	}
-	if containsEnvWithKey(final, "OPENAI_API_KEY") {
-		t.Fatalf("did not expect OPENAI_API_KEY to be injected, got %v", final)
-	}
-	if containsEnvWithKey(final, "DASHSCOPE_API_KEY") {
-		t.Fatalf("did not expect absent env vars to be injected, got %v", final)
+	if containsEnvWithKey(final, "GEMINI_API_KEY") {
+		t.Fatalf("did not expect GEMINI_API_KEY in env vars, got %v", final)
 	}
 }
 
 // This test ensures CLI overrides beat host env values; keep it serial.
 func TestParseArgsOpenCodeRespectsOverrides(t *testing.T) {
+	clearEnv(t, "ANTHROPIC_API_KEY")
 	setEnv(t, "OPENAI_API_KEY", "host-secret")
+	clearEnv(t, "GEMINI_API_KEY")
+	clearEnv(t, "DASHSCOPE_API_KEY")
 
 	opts, err := parseArgs([]string{
 		"-e", "OPENAI_API_KEY=custom",
@@ -403,6 +433,11 @@ func TestParseArgsOpenCodeRespectsOverrides(t *testing.T) {
 	}
 	if countEnvWithKey(opts.envVars, "OPENAI_API_KEY") != 1 {
 		t.Fatalf("expected exactly one OPENAI_API_KEY entry, got %v", opts.envVars)
+	}
+	layer := cliEnvLayer(opts.envVars)
+	auto := autoSecretSpecs(opts.subcommand, layer, opts.secretSpecs, nil)
+	if len(auto) != 0 {
+		t.Fatalf("expected no auto secrets when CLI override is provided, got %+v", auto)
 	}
 	final := resolveEnvVars(opts.envVars, nil, opts.subcommand)
 	if !containsEnv(final, "OPENAI_API_KEY=custom") {
@@ -427,6 +462,12 @@ func TestResolveEnvVarsPrecedence(t *testing.T) {
 		t.Fatalf("parseArgs returned error: %v", err)
 	}
 
+	layer := cliEnvLayer(opts.envVars)
+	auto := autoSecretSpecs(opts.subcommand, layer, opts.secretSpecs, nil)
+	if !containsSecret(auto, "OPENAI_API_KEY", "autop-openai") {
+		t.Fatalf("expected OPENAI_API_KEY to be captured as secret, got %+v", auto)
+	}
+
 	configEnv := map[string]configstore.EnvVarValue{
 		"BOO":         {Value: "config-global", Scope: configstore.ScopeGlobal},
 		"BAR":         {Value: "project-value", Scope: configstore.ScopeProject},
@@ -436,7 +477,6 @@ func TestResolveEnvVarsPrecedence(t *testing.T) {
 	final := resolveEnvVars(opts.envVars, configEnv, opts.subcommand)
 
 	expected := []string{
-		"OPENAI_API_KEY=autop-openai",
 		"GLOBAL_ONLY=global-only",
 		"BAR=project-value",
 		"BOO=cli-override",
@@ -485,4 +525,13 @@ func countEnvWithKey(envs []string, key string) int {
 		}
 	}
 	return count
+}
+
+func containsSecret(specs []secretSpec, key, value string) bool {
+	for _, spec := range specs {
+		if spec.Key == key && spec.Value == value {
+			return true
+		}
+	}
+	return false
 }

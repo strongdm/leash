@@ -100,3 +100,9 @@ sequenceDiagram
 - Placeholders: random lowercase alphanumeric; length derived from secret length.
 - Scope: secret values never enter the target env; only placeholders do.
 - Surface: API + UI bind to loopback by default, target container is not permitted to access the `leashd` API.
+
+## Automatic Environment Forwarding of LLM Coder API Keys
+
+**Environment forwarding** recognizes comon LLM coder API keys and automatically transforms them into Leash Secrets (e.g. `ANTHROPIC_API_KEY` -> `claude`, `OPENAI_API_KEY` -> `codex`, etc.).
+
+Even Claude won't know your actual ANTHROPIC_API_KEY!
