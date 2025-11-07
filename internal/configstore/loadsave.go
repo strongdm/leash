@@ -214,6 +214,12 @@ func decodeConfig(data []byte, path string, cfg *Config) error {
 							return fmt.Errorf("parse projects.%s.%s: boolean true is not supported; provide a volume specification", projectKey, key)
 						}
 						volumeDisables[key] = true
+					case map[string]any:
+						if len(v) == 0 {
+							// Ignore empty tables so users can comment out sections without errors.
+							continue
+						}
+						return fmt.Errorf("parse projects.%s.%s: unexpected table", projectKey, key)
 					default:
 						return fmt.Errorf("parse projects.%s.%s: expected string or boolean, got %T", projectKey, key, value)
 					}
