@@ -31,10 +31,7 @@ type capturedRequest struct {
 // HTTP proxy secrets placeholder replacement functionality.
 func TestSecretsProxyReplacesPlaceholders(t *testing.T) {
 	t.Parallel()
-
-	if os.Getenv("LEASH_E2E") != "1" {
-		t.Skip("set LEASH_E2E=1 to enable HTTP Proxy Placeholder Secrets Replacement integration test")
-	}
+	skipUnlessE2E(t)
 
 	repoRoot, err := findRepoRoot()
 	if err != nil {
@@ -162,6 +159,311 @@ func TestSecretsProxyReplacesPlaceholders(t *testing.T) {
 	}
 	if entry.Activations < 2 {
 		t.Fatalf("expected activations >= 2, got %d", entry.Activations)
+	}
+}
+
+func TestNetConnectDecisionAllowedWithoutHTTPResponse(t *testing.T) {
+	t.Parallel()
+	skipUnlessE2E(t)
+
+	repoRoot, err := findRepoRoot()
+	if err != nil {
+		t.Fatalf("determine repo root: %v", err)
+	}
+
+	leashBin := filepath.Join(repoRoot, "bin", "leash")
+	if _, err := os.Stat(leashBin); err != nil {
+		t.Fatalf("leash binary not found at %s", leashBin)
+	}
+
+	workspaceDir, err := os.MkdirTemp("", "leash-e2e-net-*")
+	if err != nil {
+		t.Fatalf("create workspace dir: %v", err)
+	}
+	defer os.RemoveAll(workspaceDir)
+
+	projectName := fmt.Sprintf("e2e-net-%d", time.Now().UnixNano())
+
+	hostIP, err := detectHostIP(t)
+	if err != nil {
+		t.Fatalf("detect host IP: %v", err)
+	}
+
+	listener, err := net.Listen("tcp", net.JoinHostPort(hostIP, "0"))
+	if err != nil {
+		t.Fatalf("listen for tcp test server: %v", err)
+	}
+	defer listener.Close()
+	tcpPort := listener.Addr().(*net.TCPAddr).Port
+
+	connAccepted := make(chan struct{}, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		_ = conn.Close()
+		select {
+		case connAccepted <- struct{}{}:
+		default:
+		}
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, leashBin, "-I", "sleep", "300")
+	cmd.Dir = workspaceDir
+	cmd.Env = append(os.Environ(),
+		fmt.Sprintf("LEASH_E2E=%s", os.Getenv("LEASH_E2E")),
+		fmt.Sprintf("LEASH_PROJECT=%s", projectName),
+	)
+
+	buf := newSafeBuffer()
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatalf("stdout pipe: %v", err)
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		t.Fatalf("stderr pipe: %v", err)
+	}
+	go io.Copy(buf, stdout)
+	go io.Copy(buf, stderr)
+
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start leash: %v", err)
+	}
+
+	cmdDone := make(chan error, 1)
+	go func() {
+		cmdDone <- cmd.Wait()
+	}()
+
+	defer func() {
+		_ = cmd.Process.Kill()
+		names := parseContainerNames(buf.String())
+		if names.target != "" {
+			_ = exec.Command("docker", "rm", "-f", names.target).Run()
+		}
+		if names.leash != "" {
+			_ = exec.Command("docker", "rm", "-f", names.leash).Run()
+		}
+	}()
+
+	controlPort, err := waitForControlPort(ctx, buf, cmdDone)
+	if err != nil {
+		t.Fatalf("detect control port: %v\noutput:\n%s", err, buf.String())
+	}
+	apiBase := fmt.Sprintf("http://127.0.0.1:%d", controlPort)
+
+	if err := waitForAPI(ctx, apiBase); err != nil {
+		t.Fatalf("waiting for API ready: %v\noutput:\n%s", err, buf.String())
+	}
+
+	names := parseContainerNames(buf.String())
+	if names.target == "" || names.leash == "" {
+		t.Fatalf("failed to detect container names from output:\n%s", buf.String())
+	}
+
+	curlCmd := exec.CommandContext(ctx,
+		"docker", "exec", names.target,
+		"sh", "-c",
+		fmt.Sprintf("curl --max-time 5 -sS http://%s:%d/ || true", hostIP, tcpPort),
+	)
+	var curlBuf bytes.Buffer
+	curlCmd.Stdout = &curlBuf
+	curlCmd.Stderr = &curlBuf
+	if err := curlCmd.Run(); err != nil {
+		t.Fatalf("curl execution failed: %v\noutput:\n%s", err, curlBuf.String())
+	}
+
+	select {
+	case <-connAccepted:
+	case <-time.After(15 * time.Second):
+		t.Fatalf("timed out waiting for TCP listener to receive connection")
+	}
+
+	time.Sleep(1 * time.Second)
+
+	grepCmd := exec.Command("docker", "exec", names.leash, "sh", "-c",
+		fmt.Sprintf("grep -F 'addr=\"%s:%d\"' /log/events.log | tail -n 1 || true", hostIP, tcpPort),
+	)
+	logLineBytes, err := grepCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("failed to inspect event log: %v\nstderr=%s", err, string(logLineBytes))
+	}
+	logLine := strings.TrimSpace(string(logLineBytes))
+	if logLine == "" {
+		fullLogCmd := exec.Command("docker", "exec", names.leash, "sh", "-c", "tail -n 200 /log/events.log")
+		fullLog, _ := fullLogCmd.CombinedOutput()
+		t.Fatalf("no event log entry found for addr=\"%s:%d\".\nrecent log tail:\n%s", hostIP, tcpPort, string(fullLog))
+	}
+	if !strings.Contains(logLine, "decision=allowed") {
+		t.Fatalf("expected decision=allowed in log entry, got: %s", logLine)
+	}
+}
+
+func TestNetConnectDecisionDeniedWhenPolicyBlocks(t *testing.T) {
+	t.Parallel()
+	skipUnlessE2E(t)
+
+	repoRoot, err := findRepoRoot()
+	if err != nil {
+		t.Fatalf("determine repo root: %v", err)
+	}
+
+	leashBin := filepath.Join(repoRoot, "bin", "leash")
+	if _, err := os.Stat(leashBin); err != nil {
+		t.Fatalf("leash binary not found at %s", leashBin)
+	}
+
+	workspaceDir, err := os.MkdirTemp("", "leash-e2e-net-deny-*")
+	if err != nil {
+		t.Fatalf("create workspace dir: %v", err)
+	}
+	defer os.RemoveAll(workspaceDir)
+
+	projectName := fmt.Sprintf("e2e-net-deny-%d", time.Now().UnixNano())
+
+	hostIP, err := detectHostIP(t)
+	if err != nil {
+		t.Fatalf("detect host IP: %v", err)
+	}
+
+	listener, err := net.Listen("tcp", net.JoinHostPort(hostIP, "0"))
+	if err != nil {
+		t.Fatalf("listen for tcp test server: %v", err)
+	}
+	defer listener.Close()
+	tcpPort := listener.Addr().(*net.TCPAddr).Port
+
+	connAccepted := make(chan struct{}, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		_ = conn.Close()
+		select {
+		case connAccepted <- struct{}{}:
+		default:
+		}
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, leashBin, "-I", "sleep", "300")
+	cmd.Dir = workspaceDir
+	cmd.Env = append(os.Environ(),
+		fmt.Sprintf("LEASH_E2E=%s", os.Getenv("LEASH_E2E")),
+		fmt.Sprintf("LEASH_PROJECT=%s", projectName),
+	)
+
+	buf := newSafeBuffer()
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatalf("stdout pipe: %v", err)
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		t.Fatalf("stderr pipe: %v", err)
+	}
+	go io.Copy(buf, stdout)
+	go io.Copy(buf, stderr)
+
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start leash: %v", err)
+	}
+
+	cmdDone := make(chan error, 1)
+	go func() {
+		cmdDone <- cmd.Wait()
+	}()
+
+	defer func() {
+		_ = cmd.Process.Kill()
+		names := parseContainerNames(buf.String())
+		if names.target != "" {
+			_ = exec.Command("docker", "rm", "-f", names.target).Run()
+		}
+		if names.leash != "" {
+			_ = exec.Command("docker", "rm", "-f", names.leash).Run()
+		}
+	}()
+
+	controlPort, err := waitForControlPort(ctx, buf, cmdDone)
+	if err != nil {
+		t.Fatalf("detect control port: %v\noutput:\n%s", err, buf.String())
+	}
+	apiBase := fmt.Sprintf("http://127.0.0.1:%d", controlPort)
+
+	if err := waitForAPI(ctx, apiBase); err != nil {
+		t.Fatalf("waiting for API ready: %v\noutput:\n%s", err, buf.String())
+	}
+
+	names := parseContainerNames(buf.String())
+	if names.target == "" || names.leash == "" {
+		t.Fatalf("failed to detect container names from output:\n%s", buf.String())
+	}
+
+	cedar := fmt.Sprintf(`
+permit (principal, action == Action::"ProcessExec", resource);
+permit (principal, action == Action::"NetworkConnect", resource);
+forbid (principal, action == Action::"NetworkConnect", resource == Host::"%s:%d");`, hostIP, tcpPort)
+	applyPolicy(t, apiBase, cedar)
+
+	time.Sleep(500 * time.Millisecond)
+
+	curlCmd := exec.CommandContext(ctx,
+		"docker", "exec", names.target,
+		"sh", "-c",
+		fmt.Sprintf("curl --fail --max-time 5 -sS -o /dev/null http://%s:%d/", hostIP, tcpPort),
+	)
+	var curlBuf bytes.Buffer
+	curlCmd.Stdout = &curlBuf
+	curlCmd.Stderr = &curlBuf
+	err = curlCmd.Run()
+	if err == nil {
+		t.Fatalf("expected curl to fail due to policy denial, but exit was success (output=%s)", curlBuf.String())
+	}
+
+	select {
+	case <-connAccepted:
+		t.Fatalf("expected no TCP connection to be accepted when policy forbids host")
+	case <-time.After(5 * time.Second):
+	}
+
+	grepCmd := exec.Command("docker", "exec", names.leash, "sh", "-c",
+		fmt.Sprintf("grep -F 'addr=\"%s:%d\"' /log/events.log | tail -n 1 || true", hostIP, tcpPort),
+	)
+	logLineBytes, err := grepCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("failed to inspect event log: %v\nstderr=%s", err, string(logLineBytes))
+	}
+	logLine := strings.TrimSpace(string(logLineBytes))
+	if logLine == "" {
+		fullLogCmd := exec.Command("docker", "exec", names.leash, "sh", "-c", "tail -n 200 /log/events.log")
+		fullLog, _ := fullLogCmd.CombinedOutput()
+		t.Fatalf("no event log entry found for addr=\"%s:%d\" after policy deny.\nrecent log tail:\n%s", hostIP, tcpPort, string(fullLog))
+	}
+	if !strings.Contains(logLine, "decision=denied") {
+		t.Fatalf("expected decision=denied in log entry, got: %s", logLine)
+	}
+}
+
+func applyPolicy(t *testing.T, apiBase, cedar string) {
+	t.Helper()
+	payload := fmt.Sprintf(`{"cedar":%q}`, cedar)
+	resp, err := http.Post(apiBase+"/api/policies", "application/json", strings.NewReader(payload))
+	if err != nil {
+		t.Fatalf("apply policy: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("apply policy unexpected status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 }
 

@@ -42,7 +42,11 @@ func TestApplySecretsHeaders(t *testing.T) {
 	req, _ := http.NewRequest(http.MethodGet, "http://example.com", nil)
 	req.Header.Set("Authorization", "Bearer "+secret.Placeholder)
 
-	proxy.applySecrets(req)
+	hits := proxy.applySecrets(req)
+
+	if len(hits) != 1 || hits[0] != "alpha" {
+		t.Fatalf("expected secret hit alpha, got %#v", hits)
+	}
 
 	if got := req.Header.Get("Authorization"); got != "Bearer hunter2" {
 		t.Fatalf("expected header replaced, got %q", got)

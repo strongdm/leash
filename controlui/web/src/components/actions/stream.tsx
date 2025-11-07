@@ -11,6 +11,7 @@ import { Network, FileText, Terminal, List, Globe, Shield, Clock, Database, Mess
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { usePolicyBlocksContext } from "@/lib/policy/policy-blocks-context";
+import { cn } from "@/lib/utils";
 
 const typeIcon: Record<ActionType, React.ReactNode> = {
   "file/open": <FileText className="size-3" />,
@@ -71,6 +72,7 @@ function resolveProjectSlug(): string {
 const renderDetail = (a: Action) => {
   const mono = "font-mono text-xs";
   const faint = "text-cyan-400/60";
+  const hasSecretHits = Array.isArray(a.secretHits) && a.secretHits.length > 0;
   const chip = (text: string, tone: "good" | "bad" | "muted" = "muted") => (
     <span className={
       `inline-flex items-center rounded px-2 py-0.5 text-[10px] border ${
@@ -101,12 +103,23 @@ const renderDetail = (a: Action) => {
   // Network/connect formatting
   if (a.type === "net/connect") {
     return (
-      <div className="flex flex-wrap items-center gap-1.5 min-w-0">
-        <span className={`${mono}`}>{a.name}</span>
+      <div
+        className={cn(
+          "flex flex-wrap items-center gap-1.5 min-w-0",
+          hasSecretHits && "text-pink-300"
+        )}
+        data-secret-hits={hasSecretHits ? a.secretHits?.join(",") : undefined}
+      >
+        <span className={cn(mono, hasSecretHits && "font-semibold text-pink-200")}>{a.name}</span>
         {typeof a.status === "number" && chip(String(a.status), a.status >= 400 ? "bad" : "good")}
         {a.transport && <span className={`${mono} ${faint}`}>via {String(a.transport).toUpperCase()}</span>}
         {a.proto && <span className={`${mono} ${faint}`}>proto {a.proto}</span>}
         {typeof a.durationMs === "number" && <span className={`${mono} ${faint}`}>{a.durationMs} ms</span>}
+        {hasSecretHits && (
+          <span className="text-[10px] uppercase tracking-wide text-pink-200/80 max-w-full truncate">
+            secrets {a.secretHits?.join(", ")}
+          </span>
+        )}
       </div>
     );
   }
@@ -150,12 +163,19 @@ const ActionRow = memo(({
   onAddPolicy: (action: { id: string; type: ActionType; name: string; server?: string; tool?: string }, effect: "permit" | "forbid") => void;
 }) => {
   const repeats = action.repeatCount ?? 1;
+  const hasSecretHits = Array.isArray(action.secretHits) && action.secretHits.length > 0;
 
   return (
-    <tr className="border-b border-cyan-500/10 transition-all duration-500 hover:bg-cyan-500/5">
+    <tr className={cn(
+      "border-b border-cyan-500/10 transition-all duration-500 hover:bg-slate-900/60",
+      hasSecretHits && "text-pink-200"
+    )}>
       <td className="p-3 align-middle text-cyan-300/60 text-xs">{timeAgo(action.ts)}</td>
       <td className="p-2.5 align-middle whitespace-nowrap">
-        <span className="inline-flex items-center gap-1 text-slate-300">
+        <span className={cn(
+          "inline-flex items-center gap-1 text-slate-300",
+          hasSecretHits && "text-pink-300"
+        )}>
           {typeIconFor(action.type)}
           <span className="text-xs whitespace-nowrap">{action.type}</span>
           {action.notification && (

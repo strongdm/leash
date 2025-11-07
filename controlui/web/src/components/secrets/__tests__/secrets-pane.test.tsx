@@ -309,6 +309,63 @@ describe("SecretsPane", () => {
     }
   });
 
+  it("restores row visibility during rapid successive activations", async () => {
+    updateDataSource({ mode: "live", connectionVersion: 0 });
+    const restoreWebSocket = installMockWebSocket();
+    try {
+      renderWithClient(<SecretsPane defaultOpen />);
+
+      await screen.findByText("alpha");
+      await waitFor(() => expect(MockWebSocket.instances.length).toBeGreaterThan(0));
+      const socket = MockWebSocket.instances[0];
+
+      act(() => {
+        const replayMessage = JSON.stringify({
+          event: "secret.activation",
+          payload: { id: "alpha", activations: 1 },
+        });
+        socket.onmessage?.({ data: replayMessage } as MessageEvent);
+      });
+      await act(async () => {});
+
+      const sendLiveActivation = async (activations: number) => {
+        act(() => {
+          const liveMessage = JSON.stringify({
+            event: "secret.activation",
+            payload: { id: "alpha", activations },
+          });
+          socket.onmessage?.({ data: liveMessage } as MessageEvent);
+        });
+        await act(async () => {});
+      };
+
+      const animationClass = "animate-[flicker_0.5s_ease-out_forwards,_colorhold_2s_ease-out_0.5s_forwards,_fadeout_0.5s_ease-out_2.5s_forwards]";
+
+      await sendLiveActivation(2);
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 30));
+      });
+      let row = screen.getByText("alpha").closest("tr");
+      expect(row).not.toBeNull();
+      expect(row?.className ?? "").toContain(animationClass);
+
+      await sendLiveActivation(3);
+      row = screen.getByText("alpha").closest("tr");
+      expect(row).not.toBeNull();
+      expect(row?.className ?? "").not.toContain(animationClass);
+
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 30));
+      });
+
+      row = screen.getByText("alpha").closest("tr");
+      expect(row).not.toBeNull();
+      expect(row?.className ?? "").toContain(animationClass);
+    } finally {
+      restoreWebSocket();
+    }
+  });
+
   it("suppresses activation animations when bursts exceed the threshold and recovers after the window elapses", async () => {
     updateDataSource({ mode: "live", connectionVersion: 0 });
     const restoreWebSocket = installMockWebSocket();
@@ -521,7 +578,9 @@ describe("useSecretsActivationListener", () => {
         socket.onmessage?.({ data: liveMessage } as MessageEvent);
       });
 
-      await act(async () => {});
+      act(() => {
+        vi.advanceTimersByTime(20);
+      });
 
       const liveAlphaRow = screen.getByText("alpha").closest("tr");
       const liveBetaRow = screen.getByText("beta").closest("tr");
@@ -533,8 +592,6 @@ describe("useSecretsActivationListener", () => {
       act(() => {
         vi.runAllTimers();
       });
-
-      await act(async () => {});
 
       const clearedAlphaRow = screen.getByText("alpha").closest("tr");
       const clearedBetaRow = screen.getByText("beta").closest("tr");

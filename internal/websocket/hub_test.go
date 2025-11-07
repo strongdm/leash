@@ -60,3 +60,24 @@ func TestHubEnqueueDropsOldestMessageWhenFull(t *testing.T) {
 		t.Fatalf("expected 'latest' to be enqueued, got %q", string(second))
 	}
 }
+
+func TestParseLogfmtToJSONCapturesSecretHits(t *testing.T) {
+	t.Parallel()
+
+	entry := parseLogfmtToJSON(`time=2025-05-01T12:00:00Z event=http.request secret_hits="alpha,beta,gamma"`)
+	if entry.Event != "http.request" {
+		t.Fatalf("expected event http.request, got %q", entry.Event)
+	}
+	if entry.SecretHits == nil {
+		t.Fatalf("expected secret hits parsed")
+	}
+	want := []string{"alpha", "beta", "gamma"}
+	if len(entry.SecretHits) != len(want) {
+		t.Fatalf("expected %d secret hits, got %d", len(want), len(entry.SecretHits))
+	}
+	for i, hit := range want {
+		if entry.SecretHits[i] != hit {
+			t.Fatalf("expected secret hit %q at index %d, got %q", hit, i, entry.SecretHits[i])
+		}
+	}
+}

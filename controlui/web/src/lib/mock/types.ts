@@ -46,6 +46,7 @@ export type Action = {
   notification?: boolean;
   requestId?: string;
   error?: string;
+  secretHits?: string[];
 };
 
 export type SimulationState = {

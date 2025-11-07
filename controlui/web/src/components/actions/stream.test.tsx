@@ -242,6 +242,36 @@ describe("ActionsStream", () => {
     }
   });
 
+  it("marks net/connect rows that used secrets", () => {
+    mockState.recentActions = [
+      {
+        id: "secret-hit",
+        instanceId: "inst-1",
+        type: "net/connect",
+        name: "api.service.local",
+        ts: Date.now(),
+        allowed: true,
+        secretHits: ["alpha", "beta"],
+      },
+    ];
+
+    render(<ActionsStream />);
+
+    const table = screen.getByRole("table");
+    const rows = within(table).getAllByRole("row");
+    expect(rows).toHaveLength(2);
+    const dataRow = rows[1];
+
+    expect(dataRow.className).toContain("text-pink");
+    expect(within(dataRow).getByText(/allowed/i)).toBeInTheDocument();
+
+    const secretLabel = within(dataRow).getByText("secrets alpha, beta");
+    expect(secretLabel).toBeInTheDocument();
+    const detailContainer = secretLabel.closest("div");
+    expect(detailContainer).not.toBeNull();
+    expect(detailContainer?.dataset.secretHits).toBe("alpha,beta");
+  });
+
   it("passes server+tool for MCP Add Deny", async () => {
     mockState.recentActions = [
       {

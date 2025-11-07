@@ -307,7 +307,7 @@ func (p *MITMProxy) blockConnection(clientConn net.Conn, isHTTPS bool, hostname,
 	policyErr := fmt.Errorf("connection denied by security policy")
 
 	// Log the denied request to shared logger
-	p.logRequest(protocol, hostname, portStr, path, query, authHeader, 403, policyErr)
+	p.logRequest(protocol, hostname, portStr, path, query, authHeader, 403, policyErr, nil, "denied")
 
 	body := "Connection denied by security policy: " + hostname
 	response := fmt.Sprintf("HTTP/1.1 403 Forbidden\r\n"+
@@ -370,7 +370,7 @@ func (p *MITMProxy) enforceMCPCall(conn net.Conn, ctx *mcpRequestContext, server
 		if p.mcpObserver != nil {
 			p.mcpObserver.logHTTPRequest(ctx, status, "denied", "", nil)
 		}
-		p.logRequest(scheme, logHost, logPort, path, query, authHeader, status, fmt.Errorf("mcp tools/call denied by policy"))
+		p.logRequest(scheme, logHost, logPort, path, query, authHeader, status, fmt.Errorf("mcp tools/call denied by policy"), nil, "denied")
 		return true
 	}
 	return false
@@ -418,7 +418,7 @@ func (p *MITMProxy) handleTransparentHTTP(clientConn net.Conn, originalDest stri
 		if port == "" {
 			port = "80"
 		}
-		p.logRequest("http", host, port, "", "", "", 0, err)
+		p.logRequest("http", host, port, "", "", "", 0, err, nil, "allowed")
 		return
 	}
 
@@ -455,7 +455,7 @@ func (p *MITMProxy) handleTransparentHTTP(clientConn net.Conn, originalDest stri
 
 	// Unique request logging removed
 
-	p.applySecrets(req)
+	secretHits := p.applySecrets(req)
 
 	// Apply header rewriting rules
 	p.headerRewriter.ApplyRules(req)
@@ -482,7 +482,7 @@ func (p *MITMProxy) handleTransparentHTTP(clientConn net.Conn, originalDest stri
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
 		log.Printf("Error forwarding request: %v", err)
-		p.logRequest("http", host, port, path, query, authHeader, 0, err)
+		p.logRequest("http", host, port, path, query, authHeader, 0, err, secretHits, "allowed")
 		if mcpCtx != nil {
 			p.mcpObserver.logHTTPRequest(mcpCtx, 0, "error", "", err)
 		}
@@ -524,7 +524,7 @@ func (p *MITMProxy) handleTransparentHTTP(clientConn net.Conn, originalDest stri
 		p.mcpObserver.logHTTPRequest(mcpCtx, resp.StatusCode, outcome, sessionHeader, writeErr)
 	}
 
-	p.logRequest("http", host, port, path, query, authHeader, resp.StatusCode, writeErr)
+	p.logRequest("http", host, port, path, query, authHeader, resp.StatusCode, writeErr, secretHits, "allowed")
 }
 
 // connWrapper wraps a net.Conn with additional reader for prepending data
@@ -656,7 +656,7 @@ func (p *MITMProxy) handleTransparentHTTPS(clientConn net.Conn, originalDest str
 			break
 		}
 
-		p.applySecrets(req)
+		secretHits := p.applySecrets(req)
 
 		// Apply header rewriting rules
 		p.headerRewriter.ApplyRules(req)
@@ -669,7 +669,7 @@ func (p *MITMProxy) handleTransparentHTTPS(clientConn net.Conn, originalDest str
 		}
 
 		// Log request to logfmt
-		p.logRequest("https", host, port, path, query, authHeader, responseCode, forwardErr)
+		p.logRequest("https", host, port, path, query, authHeader, responseCode, forwardErr, secretHits, "allowed")
 	}
 }
 
@@ -793,15 +793,15 @@ func (p *MITMProxy) getCertificate(host string) (*tls.Certificate, error) {
 }
 
 // logRequest logs a request in logfmt format to the shared event log
-func (p *MITMProxy) logRequest(reqType, host, port, path, query, authHeader string, responseCode int, err error) {
+func (p *MITMProxy) logRequest(reqType, host, port, path, query, authHeader string, responseCode int, err error, secretHits []string, decision string) {
 	// Log to shared logger
 	if p.sharedLogger != nil {
 		timestamp := time.Now().Format(time.RFC3339) // ISO 8601 format
 
-		// Determine result
-		resultStr := "allowed"
-		if err != nil {
-			resultStr = "denied"
+		// Normalize decision (policy verdict), defaulting to allowed.
+		resultStr := strings.ToLower(strings.TrimSpace(decision))
+		if resultStr != "denied" {
+			resultStr = "allowed"
 		}
 
 		// Build destination
@@ -826,6 +826,10 @@ func (p *MITMProxy) logRequest(reqType, host, port, path, query, authHeader stri
 
 		if authHeader != "" {
 			logEntry += fmt.Sprintf(" auth=\"%s\"", authHeader[:min(len(authHeader), 20)]) // Truncate for security
+		}
+
+		if len(secretHits) > 0 {
+			logEntry += fmt.Sprintf(" secret_hits=\"%s\"", strings.Join(secretHits, ","))
 		}
 
 		if err != nil {

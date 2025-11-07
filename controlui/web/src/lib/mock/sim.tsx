@@ -247,6 +247,7 @@ type WebsocketLogEntry = {
   notification?: boolean;
   id?: string; // request id
   payload?: unknown;
+  secret_hits?: string[];
 };
 
 function makeInitialInstances(n = 8): Instance[] {
@@ -830,14 +831,35 @@ export function SimulationProvider({ children, initialMode = "sim", persist = tr
 
       socket.onerror = () => {
         if (cancelled) return;
-        setStatus("error");
+        setStatus((prev) => (prev === "connecting" ? prev : "error"));
         setError("WebSocket error");
       };
 
-      socket.onclose = () => {
+      socket.onclose = (event) => {
         if (cancelled) return;
-        setStatus("error");
-        setError((prev) => prev ?? "WebSocket closed");
+        const eventLike = event as { code?: number; reason?: string; wasClean?: boolean } | undefined;
+        const code = typeof eventLike?.code === "number" ? eventLike.code : undefined;
+        const reason = typeof eventLike?.reason === "string" ? eventLike.reason : undefined;
+        const wasClean = eventLike?.wasClean ?? false;
+        const normalClosureCodes = new Set([1000, 1001, 1012, 1013]);
+        const isExpectedClose = (code !== undefined && normalClosureCodes.has(code)) || wasClean;
+
+        if (isExpectedClose) {
+          setStatus("connecting");
+          setError(null);
+        } else {
+          setStatus("error");
+          setError((prev) => {
+            if (prev) return prev;
+            if (reason && reason.trim().length > 0) {
+              return `WebSocket closed: ${reason}`;
+            }
+            if (code !== undefined) {
+              return `WebSocket closed (code ${code})`;
+            }
+            return "WebSocket closed";
+          });
+        }
         scheduleReconnect();
       };
     };
@@ -1014,6 +1036,7 @@ function transformLogEntry(entry: WebsocketLogEntry): IngestPayload | null {
 
   let type: ActionType;
   let name: string;
+  const secretHits = normalizeSecretHits(entry.secret_hits);
 
   switch (entry.event) {
     case "file.open":
@@ -1115,6 +1138,11 @@ case "dns.query":
     error: entry.error,
   };
 
+  if (secretHits) {
+    allowed = true;
+    action.secretHits = secretHits;
+  }
+
   return { instance, action, raw: entry };
 }
 
@@ -1171,6 +1199,22 @@ function buildHttpRewriteName(entry: WebsocketLogEntry): string {
   if (to) return `${header}: ${to}${auth}`;
   if (from) return `${header}: ${from}${auth}`;
   return `${header}${auth}`.trim();
+}
+
+function normalizeSecretHits(list?: string[]): string[] | undefined {
+  if (!Array.isArray(list) || list.length === 0) {
+    return undefined;
+  }
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const value of list) {
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    normalized.push(trimmed);
+  }
+  return normalized.length > 0 ? normalized : undefined;
 }
 
 function buildMcpName(entry: WebsocketLogEntry, kind: "mcp.deny" | "mcp.allow" = "mcp.deny"): string {

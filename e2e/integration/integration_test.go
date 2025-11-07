@@ -29,10 +29,15 @@ const (
 	localPolicyHTTPPort = 18081
 )
 
-func TestIntegration(t *testing.T) {
+func skipUnlessE2E(t *testing.T) {
+	t.Helper()
 	if !envTruthy(os.Getenv("LEASH_E2E")) {
 		t.Skip("set LEASH_E2E=1 to run integration tests")
 	}
+}
+
+func TestIntegration(t *testing.T) {
+	skipUnlessE2E(t)
 
 	liteMode := isLiteMode()
 	if liteMode {

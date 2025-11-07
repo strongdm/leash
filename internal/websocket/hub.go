@@ -55,6 +55,7 @@ type LogEntry struct {
 	UptimeSec        *int64          `json:"uptime_s,omitempty"`
 	LastSeq          *uint64         `json:"last_seq,omitempty"`
 	Payload          json.RawMessage `json:"payload,omitempty"`
+	SecretHits       []string        `json:"secret_hits,omitempty"`
 }
 
 // EventRingBuffer maintains a fixed-size buffer of recent events
@@ -839,6 +840,19 @@ func parseLogfmtToJSON(logfmt string) LogEntry {
 			entry.Server = value
 		case "tool":
 			entry.Tool = value
+		case "secret_hits":
+			if value != "" {
+				parts := strings.Split(value, ",")
+				hits := make([]string, 0, len(parts))
+				for _, part := range parts {
+					if trimmed := strings.TrimSpace(part); trimmed != "" {
+						hits = append(hits, trimmed)
+					}
+				}
+				if len(hits) > 0 {
+					entry.SecretHits = hits
+				}
+			}
 		}
 	}
 

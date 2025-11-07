@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -32,14 +33,14 @@ type secretEntry struct {
 	valueBytes       []byte
 }
 
-func (p *MITMProxy) applySecrets(req *http.Request) {
+func (p *MITMProxy) applySecrets(req *http.Request) []string {
 	if p == nil || req == nil || p.secretsManager == nil {
-		return
+		return nil
 	}
 
 	snapshot := p.secretsManager.Snapshot()
 	if len(snapshot.Placeholders) == 0 {
-		return
+		return nil
 	}
 
 	entries := make([]secretEntry, 0, len(snapshot.Placeholders))
@@ -78,12 +79,18 @@ func (p *MITMProxy) applySecrets(req *http.Request) {
 	}
 
 	if len(totalCounts) == 0 {
-		return
+		return nil
 	}
+
+	hits := make([]string, 0, len(totalCounts))
+	for id := range totalCounts {
+		hits = append(hits, id)
+	}
+	sort.Strings(hits)
 
 	updates := p.secretsManager.ReplaceStats(totalCounts)
 	if len(updates) == 0 || p.secretsEvents == nil {
-		return
+		return hits
 	}
 	for id, activations := range updates {
 		p.secretsEvents.EmitJSON("secret.activation", map[string]any{
@@ -91,6 +98,7 @@ func (p *MITMProxy) applySecrets(req *http.Request) {
 			"activations": activations,
 		})
 	}
+	return hits
 }
 
 func (p *MITMProxy) replaceBody(req *http.Request, entries []secretEntry, counts map[string]int) error {

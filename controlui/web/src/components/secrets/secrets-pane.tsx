@@ -43,6 +43,7 @@ export function SecretsPane({ defaultOpen = false }: SecretsPaneProps) {
   const [headerState, setHeaderState] = useState<"idle" | "active" | "suppressed">("idle");
   const [activeRowIds, setActiveRowIds] = useState<Set<string>>(new Set());
   const [animationsSuppressed, setAnimationsSuppressed] = useState(false);
+  const [suppressedRowIds, setSuppressedRowIds] = useState<Set<string>>(new Set());
   const editInputRef = useRef<HTMLInputElement | null>(null);
   const animationsSuppressedRef = useRef(animationsSuppressed);
   const openRef = useRef(open);
@@ -59,6 +60,66 @@ export function SecretsPane({ defaultOpen = false }: SecretsPaneProps) {
     animationsSuppressedRef.current = animationsSuppressed;
   }, [animationsSuppressed]);
 
+  const restartRowAnimation = useCallback((secretId: string) => {
+    setActiveRowIds((prev) => {
+      if (!prev.has(secretId)) {
+        return prev;
+      }
+      const next = new Set(prev);
+      next.delete(secretId);
+      return next;
+    });
+
+    const addBack = () => {
+      setActiveRowIds((prev) => {
+        const next = new Set(prev);
+        next.add(secretId);
+        return next;
+      });
+    };
+
+    if (typeof window === "undefined") {
+      addBack();
+      return;
+    }
+
+    if (typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(() => {
+        addBack();
+      });
+      return;
+    }
+
+    window.setTimeout(() => {
+      addBack();
+    }, 16);
+  }, []);
+
+  const scheduleRowFade = useCallback((id: string) => {
+    setSuppressedRowIds((prev) => {
+      if (!prev.has(id)) {
+        return prev;
+      }
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    const timers = activeTimersRef.current;
+    const existing = timers.get(id);
+    if (existing) {
+      clearTimeout(existing);
+    }
+    const timer = window.setTimeout(() => {
+      timers.delete(id);
+      setActiveRowIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }, ACTIVATION_ANIMATION_DURATION_MS);
+    timers.set(id, timer);
+  }, []);
+
   const releaseSuppression = useCallback(() => {
     setAnimationsSuppressed(false);
     setHeaderState("idle");
@@ -67,7 +128,6 @@ export function SecretsPane({ defaultOpen = false }: SecretsPaneProps) {
       clearTimeout(timerId);
     });
     timers.clear();
-    setActiveRowIds(() => new Set());
   }, []);
 
   const scheduleSuppressionRelease = useCallback(() => {
@@ -121,28 +181,25 @@ export function SecretsPane({ defaultOpen = false }: SecretsPaneProps) {
     if (isOpen && secretId) {
       // Animate the specific row
       console.log("[SecretsPane] Animating row:", secretId);
-      setActiveRowIds((prev) => {
+      restartRowAnimation(secretId);
+      setSuppressedRowIds((prev) => {
         const next = new Set(prev);
-        next.add(secretId);
+        if (burstActive) {
+          next.add(secretId);
+        } else {
+          next.delete(secretId);
+        }
         return next;
       });
-      const timers = activeTimersRef.current;
-      const existing = timers.get(secretId);
-      if (existing) {
-        clearTimeout(existing);
-      }
       if (burstActive) {
-        timers.delete(secretId);
-      } else {
-        const timer = window.setTimeout(() => {
+        const timers = activeTimersRef.current;
+        const existing = timers.get(secretId);
+        if (existing) {
+          clearTimeout(existing);
           timers.delete(secretId);
-          setActiveRowIds((prev) => {
-            const next = new Set(prev);
-            next.delete(secretId);
-            return next;
-          });
-        }, ACTIVATION_ANIMATION_DURATION_MS); // 0.5s flicker + 2s hold + 0.5s fade = 3s total
-        timers.set(secretId, timer);
+        }
+      } else {
+        scheduleRowFade(secretId);
       }
     } else {
       // Animate the header
@@ -160,7 +217,7 @@ export function SecretsPane({ defaultOpen = false }: SecretsPaneProps) {
         }, ACTIVATION_ANIMATION_DURATION_MS); // 0.5s flicker + 2s hold + 0.5s fade = 3s total
       }
     }
-  }, [scheduleSuppressionRelease]);
+  }, [scheduleSuppressionRelease, releaseSuppression, scheduleRowFade, restartRowAnimation]);
 
   useSecretsActivationListener(true, handleActivation);
 
@@ -444,20 +501,23 @@ export function SecretsPane({ defaultOpen = false }: SecretsPaneProps) {
                 const isEditing = editing && editing.original.id === secret.id;
                 const rowError = rowErrors[secret.id];
                 const isActive = activeRowIds.has(secret.id);
-                const showSuppressedStyle = animationsSuppressed && isActive;
+                const isSuppressed = suppressedRowIds.has(secret.id) || (animationsSuppressed && isActive);
+                const highlightClass = isSuppressed
+                  ? "bg-[#7A67E6]/20 transition-colors duration-300"
+                  : (isActive
+                    ? "bg-[#7A67E6]/10 animate-[flicker_0.5s_ease-out_forwards,_colorhold_2s_ease-out_0.5s_forwards,_fadeout_0.5s_ease-out_2.5s_forwards]"
+                    : null);
 
                 return (
                   <Fragment key={secret.id}>
                     <TableRow className={cn(
                       isEditing && "bg-muted/40",
-                      isActive && (showSuppressedStyle
-                        ? "bg-[#7A67E6]/20 transition-colors duration-300"
-                        : "bg-[#7A67E6]/10 animate-[flicker_0.5s_ease-out_forwards,_colorhold_2s_ease-out_0.5s_forwards,_fadeout_0.5s_ease-out_2.5s_forwards]")
+                      highlightClass
                     )}>
                       <TableCell>
                         <span className={cn(
                           "text-sm text-muted-foreground",
-                          isActive && "text-[#B859E0] font-semibold"
+                          (isSuppressed || isActive) && "text-[#B859E0] font-semibold"
                         )}>{secret.activations}</span>
                       </TableCell>
                       <TableCell>
