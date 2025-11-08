@@ -121,6 +121,7 @@ func decodeConfig(data []byte, path string, cfg *Config) error {
 			customVolumes := make(map[string]string)
 			volumeDisables := make(map[string]bool)
 			projectSecrets := make(map[string]string)
+			var projectAutoLLM *bool
 
 			for key, value := range projectTable {
 				switch key {
@@ -193,6 +194,12 @@ func decodeConfig(data []byte, path string, cfg *Config) error {
 						}
 						projectSecrets[trimmedKey] = expandConfigValue(strVal)
 					}
+				case "auto_llm_secrets":
+					boolVal, err := toBool(value)
+					if err != nil {
+						return fmt.Errorf("parse projects.%s.auto_llm_secrets: %w", projectKey, err)
+					}
+					projectAutoLLM = boolPtr(boolVal)
 				default:
 					if _, supported := supportedCommands[key]; supported {
 						boolVal, err := toBool(value)
@@ -243,12 +250,25 @@ func decodeConfig(data []byte, path string, cfg *Config) error {
 			if len(projectSecrets) > 0 {
 				cfg.ProjectSecrets[normalizedKey] = projectSecrets
 			}
+			if projectAutoLLM != nil {
+				if cfg.ProjectAutoLLMSecrets == nil {
+					cfg.ProjectAutoLLMSecrets = make(map[string]*bool)
+				}
+				cfg.ProjectAutoLLMSecrets[normalizedKey] = projectAutoLLM
+			}
 		}
 	}
 
 	if leash, ok := raw["leash"].(map[string]any); ok {
 		if target, ok := leash["target_image"].(string); ok {
 			cfg.TargetImage = strings.TrimSpace(target)
+		}
+		if rawAuto, ok := leash["auto_llm_secrets"]; ok {
+			boolVal, err := toBool(rawAuto)
+			if err != nil {
+				return fmt.Errorf("parse leash.auto_llm_secrets: %w", err)
+			}
+			cfg.AutoLLMSecrets = boolPtr(boolVal)
 		}
 		if envTable, ok := leash["envvars"].(map[string]any); ok {
 			for key, rawVal := range envTable {
@@ -386,6 +406,9 @@ func buildPersisted(cfg Config) persistedConfig {
 	for key := range cfg.ProjectSecrets {
 		projectKeys[key] = struct{}{}
 	}
+	for key := range cfg.ProjectAutoLLMSecrets {
+		projectKeys[key] = struct{}{}
+	}
 
 	if len(projectKeys) > 0 {
 		projects := make(map[string]map[string]any, len(projectKeys))
@@ -440,6 +463,9 @@ func buildPersisted(cfg Config) persistedConfig {
 					entry["secrets"] = secretCopy
 				}
 			}
+			if autoPtr, ok := cfg.ProjectAutoLLMSecrets[key]; ok && autoPtr != nil {
+				entry["auto_llm_secrets"] = *autoPtr
+			}
 			if img := strings.TrimSpace(cfg.ProjectTargetImages[key]); img != "" {
 				entry["target_image"] = img
 			}
@@ -460,6 +486,13 @@ func buildPersisted(cfg Config) persistedConfig {
 			result.Leash = make(map[string]any)
 		}
 		result.Leash["target_image"] = img
+	}
+
+	if cfg.AutoLLMSecrets != nil {
+		if result.Leash == nil {
+			result.Leash = make(map[string]any)
+		}
+		result.Leash["auto_llm_secrets"] = *cfg.AutoLLMSecrets
 	}
 
 	if len(cfg.EnvVars) > 0 {

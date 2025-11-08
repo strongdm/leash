@@ -27,6 +27,24 @@ const ACTIVATION_BURST_WINDOW_MS = 600;
 const ACTIVATION_BURST_THRESHOLD = 5;
 const ACTIVATION_RECOVERY_THRESHOLD = 2;
 
+const SECRET_MASK_CHAR = "\u2022";
+const SECRET_MASK_MIN_CHARS = 32;
+const SECRET_MASK_MAX_CHARS = 64;
+
+function maskSecretValue(value: string) {
+  if (!value) {
+    return { masked: "", truncated: false };
+  }
+  const length = value.length;
+  const maskedLength = Math.min(Math.max(length, SECRET_MASK_MIN_CHARS), SECRET_MASK_MAX_CHARS);
+  const maskedCore = SECRET_MASK_CHAR.repeat(maskedLength);
+  const truncated = length > SECRET_MASK_MAX_CHARS;
+  return {
+    masked: maskedCore,
+    truncated,
+  };
+}
+
 export function SecretsPane({ defaultOpen = false }: SecretsPaneProps) {
   const { data: secrets = [], isLoading } = useSecretsQuery();
   const upsertMutation = useSecretUpsert();
@@ -502,6 +520,7 @@ export function SecretsPane({ defaultOpen = false }: SecretsPaneProps) {
                 const rowError = rowErrors[secret.id];
                 const isActive = activeRowIds.has(secret.id);
                 const isSuppressed = suppressedRowIds.has(secret.id) || (animationsSuppressed && isActive);
+                const maskedValue = maskSecretValue(secret.value);
                 const highlightClass = isSuppressed
                   ? "bg-[#7A67E6]/20 transition-colors duration-300"
                   : (isActive
@@ -558,6 +577,11 @@ export function SecretsPane({ defaultOpen = false }: SecretsPaneProps) {
                             onKeyDown={handleEditKeyDown}
                             onBlur={resetEditing}
                             aria-label={`Edit value for ${editing.original.id}`}
+                            type="password"
+                            autoComplete="new-password"
+                            spellCheck={false}
+                            autoCorrect="off"
+                            autoCapitalize="none"
                           />
                         ) : (
                           <button
@@ -569,9 +593,17 @@ export function SecretsPane({ defaultOpen = false }: SecretsPaneProps) {
                             )}
                             onClick={() => beginEdit(secret, "value")}
                             aria-label={`Edit value ${secret.id}`}
-                            title={secret.value}
                           >
-                            {secret.value || <span className="italic text-muted-foreground">(empty)</span>}
+                            {secret.value ? (
+                              <>
+                                <span aria-hidden="true">{maskedValue.masked}</span>
+                                <span className="sr-only">
+                                  Secret value hidden{maskedValue.truncated ? ", truncated display" : ""}
+                                </span>
+                              </>
+                            ) : (
+                              <span className="italic text-muted-foreground">(empty)</span>
+                            )}
                           </button>
                         )}
                       </TableCell>

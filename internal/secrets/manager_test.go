@@ -2,6 +2,7 @@ package secrets
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -19,11 +20,29 @@ func TestManagerUpsertCreate(t *testing.T) {
 	if secret.Value != "supersecret" {
 		t.Fatalf("expected value to round-trip, got %s", secret.Value)
 	}
-	if len(secret.Placeholder) != len(secret.Value) {
-		t.Fatalf("expected placeholder length %d, got %d", len(secret.Value), len(secret.Placeholder))
+	wantLen := len(secret.Value)
+	if wantLen < minPlaceholderLength {
+		wantLen = minPlaceholderLength
+	}
+	if len(secret.Placeholder) != wantLen {
+		t.Fatalf("expected placeholder length %d, got %d", wantLen, len(secret.Placeholder))
 	}
 	if secret.Activations != 0 {
 		t.Fatalf("expected zero activations, got %d", secret.Activations)
+	}
+}
+
+func TestManagerPlaceholderLengthMatchesWhenLongerThanMinimum(t *testing.T) {
+	t.Parallel()
+	mgr := NewManager()
+
+	longValue := strings.Repeat("x", minPlaceholderLength+5)
+	secret, err := mgr.Upsert("long", "", longValue)
+	if err != nil {
+		t.Fatalf("create failed: %v", err)
+	}
+	if len(secret.Placeholder) != len(longValue) {
+		t.Fatalf("expected placeholder length %d, got %d", len(longValue), len(secret.Placeholder))
 	}
 }
 

@@ -16,6 +16,8 @@ var (
 	errInvalidPlaceholderCh = errors.New("invalid placeholder length")
 )
 
+const minPlaceholderLength = 32
+
 const (
 	maxPlaceholderAttempts = 64
 )
@@ -276,6 +278,9 @@ func (m *Manager) uniquePlaceholder(length int, current string) (string, error) 
 			delete(m.placeholderIndex, current)
 		}
 		return "", nil
+	}
+	if length < minPlaceholderLength {
+		length = minPlaceholderLength
 	}
 
 	for i := 0; i < maxPlaceholderAttempts; i++ {

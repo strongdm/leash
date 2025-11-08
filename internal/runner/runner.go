@@ -63,6 +63,8 @@ const (
 	imageSourceDevFile = "dev-file"
 )
 
+const aggregateSubcommandKey = "opencode"
+
 var baseEnvVarsByCommand = map[string][]string{
 	"claude": {envAnthropicAPIKey},
 	"codex":  {envOpenAIAPIKey},
@@ -87,26 +89,27 @@ var autoEnvForCommand = func() map[string][]string {
 			aggregate = append(aggregate, v)
 		}
 	}
-	out["opencode"] = aggregate
+	out[aggregateSubcommandKey] = aggregate
 	return out
 }()
 
 type options struct {
-	noInteractive  bool
-	policyOverride string
-	verbose        bool
-	volumes        []string
-	envVars        []string
-	secretSpecs    []secretSpec
-	command        []string
-	subcommand     string
-	targetImage    string
-	leashImage     string
-	listen         string
-	listenSet      bool
-	openUI         bool
-	publishes      []publishSpec
-	publishAll     bool
+	noInteractive         bool
+	policyOverride        string
+	verbose               bool
+	volumes               []string
+	envVars               []string
+	secretSpecs           []secretSpec
+	command               []string
+	subcommand            string
+	targetImage           string
+	leashImage            string
+	listen                string
+	listenSet             bool
+	openUI                bool
+	publishes             []publishSpec
+	publishAll            bool
+	disableAutoLLMSecrets bool
 }
 
 type secretSpec struct {
@@ -144,6 +147,7 @@ type config struct {
 	leashImageDevFile   string
 	listenCfg           listen.Config
 	listenExplicit      bool
+	autoLLMSecrets      bool
 }
 
 type runner struct {
@@ -238,8 +242,10 @@ func execute(cmdName string, args []string) error {
 	}
 
 	cliLayer := cliEnvLayer(opts.envVars)
-	if autoSecrets := autoSecretSpecs(opts.subcommand, cliLayer, opts.secretSpecs, configSecrets); len(autoSecrets) > 0 {
-		opts.secretSpecs = append(opts.secretSpecs, autoSecrets...)
+	if cfg.autoLLMSecrets {
+		if autoSecrets := autoSecretSpecs(opts.subcommand, cliLayer, opts.secretSpecs, configSecrets); len(autoSecrets) > 0 {
+			opts.secretSpecs = append(opts.secretSpecs, autoSecrets...)
+		}
 	}
 
 	opts.envVars = resolveEnvVars(opts.envVars, configEnv, opts.subcommand)
@@ -326,6 +332,7 @@ Flags:
   -v, --volume <src:dst[:ro]>     Bind mount to pass through to the target container (repeatable).
   -e, --env <key[=value]>         Set environment variables inside the leash containers (repeatable).
   -s, --secret KEY=VALUE          Register a secret with the target runtime (repeatable).
+  -S, --no-auto-llm-secrets       Disable automatic registration of known LLM API keys for this session.
   -p, --publish <[ip:]host:container[/proto]>   Publish a container port to the host (repeatable). Examples: -p 3000, -p 8000:3000, -p 127.0.0.1:3000:3000, -p :3000, -p 3000/udp
   -P, --publish-all               Publish all EXPOSEd ports (host same as container when free, auto-bump on conflicts).
   --image <name[:tag]>            Override the target container image (defaults to %s).
@@ -415,6 +422,8 @@ func parseArgs(args []string) (options, error) {
 				break
 			}
 			opts.verbose = true
+		case "-S":
+			opts.disableAutoLLMSecrets = true
 		case "--volume":
 			if i+1 >= len(args) {
 				return opts, fmt.Errorf("missing argument for %s", arg)
@@ -448,6 +457,8 @@ func parseArgs(args []string) (options, error) {
 			i++
 		case "-o", "--open":
 			opts.openUI = true
+		case "--no-auto-llm-secrets":
+			opts.disableAutoLLMSecrets = true
 		case "-h", "--help", "help":
 			return opts, errShowUsage
 		case "--":
@@ -489,6 +500,8 @@ func parseArgs(args []string) (options, error) {
 				return opts, fmt.Errorf("--open does not take a value")
 			case strings.HasPrefix(arg, "-o="):
 				return opts, fmt.Errorf("-o does not take a value")
+			case strings.HasPrefix(arg, "--no-auto-llm-secrets="):
+				return opts, fmt.Errorf("--no-auto-llm-secrets does not take a value")
 			case strings.HasPrefix(arg, "-v="):
 				volume := strings.TrimPrefix(arg, "-v=")
 				if volume == "" {
@@ -716,7 +729,10 @@ func resolveEnvVars(cliSpecs []string, configEnv map[string]configstore.EnvVarVa
 func autoSecretSpecs(subcommand string, cliLayer configstore.EnvLayer, cliSecrets []secretSpec, configSecrets map[string]configstore.SecretValue) []secretSpec {
 	keys, ok := autoEnvForCommand[subcommand]
 	if !ok || len(keys) == 0 {
-		return nil
+		keys = autoEnvForCommand[aggregateSubcommandKey]
+		if len(keys) == 0 {
+			return nil
+		}
 	}
 
 	skip := make(map[string]struct{})
@@ -811,7 +827,7 @@ func autoEnvLayer(subcommand string, cliLayer configstore.EnvLayer) configstore.
 }
 
 func isSecretManagedKey(key string) bool {
-	for _, candidate := range autoEnvForCommand["opencode"] {
+	for _, candidate := range autoEnvForCommand[aggregateSubcommandKey] {
 		if candidate == key {
 			return true
 		}
@@ -1057,6 +1073,7 @@ func loadConfig(callerDir string, opts options) (config, map[string]configstore.
 		proxyPort:           envOrDefault("LEASH_PROXY_PORT", defaultProxyPort),
 		extraArgs:           os.Getenv("LEASH_EXTRA_ARGS"),
 		cgroupPathOverride:  strings.TrimSpace(os.Getenv("LEASH_CGROUP_PATH")),
+		autoLLMSecrets:      true,
 	}
 
 	if envLeash := strings.TrimSpace(os.Getenv("LEASH_IMAGE")); envLeash != "" {
@@ -1110,6 +1127,15 @@ func loadConfig(callerDir string, opts options) (config, map[string]configstore.
 	}
 	if resolvedSecrets == nil {
 		resolvedSecrets = make(map[string]configstore.SecretValue)
+	}
+
+	autoLLMSecrets, _, err := cfgData.ResolveAutoLLMSecrets(callerDir)
+	if err != nil {
+		return config{}, nil, nil, fmt.Errorf("resolve config auto secrets: %w", err)
+	}
+	cfg.autoLLMSecrets = autoLLMSecrets
+	if opts.disableAutoLLMSecrets {
+		cfg.autoLLMSecrets = false
 	}
 
 	targetFromConfig := ""

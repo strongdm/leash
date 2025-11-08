@@ -71,6 +71,20 @@ Running `leash -- codex shell` from `$HOME/src/app` registers `API_TOKEN=sk-proj
 
 See also: [SECRETS.md](design/SECRETS.md)
 
+## Automatic LLM Secrets
+
+By default, Leash inspects the host environment for well-known LLM API keys (OpenAI, Anthropic, DashScope, Gemini) and registers them as secrets when a session starts. Disable this behavior globally with `auto_llm_secrets = false` under `[leash]`, or on a project-by-project basis with `[projects."/abs/path"].auto_llm_secrets = false`. Project settings override the global choice, and the CLI `-S/--no-auto-llm-secrets` flag disables auto-registration for a single run regardless of persisted values.
+
+```toml
+[leash]
+auto_llm_secrets = false
+
+[projects."/Users/alice/src/app"]
+auto_llm_secrets = true
+```
+
+With the example above, Leash stops auto-registering LLM keys except when invoked from `/Users/alice/src/app`.
+
 ## Supported Tools
 
 Leash automatically manages mounts for the following subcommands:

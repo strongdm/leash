@@ -205,7 +205,11 @@ describe("SecretsPane", () => {
       expect(record?.value).toBe("updated");
       expect(record?.placeholder).not.toBe(oldPlaceholder);
     });
-    await screen.findByText("updated");
+    const maskedUpdated = "\u2022".repeat(32);
+    await waitFor(() => {
+      const valueButton = screen.getByRole("button", { name: "Edit value alpha" });
+      expect(valueButton.textContent ?? "").toContain(maskedUpdated);
+    });
   });
 
   it("deletes a secret", async () => {

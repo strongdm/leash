@@ -7,6 +7,7 @@ import React, {
   useEffect,
   useMemo,
   useReducer,
+  useRef,
   useState,
 } from "react";
 import { faker } from "@faker-js/faker";
@@ -701,6 +702,7 @@ export function SimulationProvider({ children, initialMode = "sim", persist = tr
   const [wsUrl, setWsUrl] = useState<string | null>(() => process.env.NEXT_PUBLIC_LEASH_WS_URL ?? null);
   const [latestPolicySnapshot, setLatestPolicySnapshot] = useState<PolicySnapshotPayload | null>(null);
   const [connectionVersion, setConnectionVersion] = useState(0);
+  const hasSuccessfulConnection = useRef(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -770,6 +772,7 @@ export function SimulationProvider({ children, initialMode = "sim", persist = tr
     identityRegistry.reset();
     setLatestPolicySnapshot(null);
     setError(null);
+    hasSuccessfulConnection.current = false;
 
     let cancelled = false;
     let socket: WebSocket | null = null;
@@ -808,6 +811,7 @@ export function SimulationProvider({ children, initialMode = "sim", persist = tr
         setError(null);
         attempts = 0;
         setConnectionVersion((v) => v + 1);
+        hasSuccessfulConnection.current = true;
       };
 
       socket.onmessage = (event) => {
@@ -831,6 +835,11 @@ export function SimulationProvider({ children, initialMode = "sim", persist = tr
 
       socket.onerror = () => {
         if (cancelled) return;
+        if (hasSuccessfulConnection.current) {
+          setStatus("connecting");
+          setError(null);
+          return;
+        }
         setStatus((prev) => (prev === "connecting" ? prev : "error"));
         setError("WebSocket error");
       };
@@ -843,8 +852,9 @@ export function SimulationProvider({ children, initialMode = "sim", persist = tr
         const wasClean = eventLike?.wasClean ?? false;
         const normalClosureCodes = new Set([1000, 1001, 1012, 1013]);
         const isExpectedClose = (code !== undefined && normalClosureCodes.has(code)) || wasClean;
+        const treatAsTransient = isExpectedClose || hasSuccessfulConnection.current;
 
-        if (isExpectedClose) {
+        if (treatAsTransient) {
           setStatus("connecting");
           setError(null);
         } else {
@@ -881,6 +891,7 @@ export function SimulationProvider({ children, initialMode = "sim", persist = tr
           console.warn("WebSocket close error", err);
         }
       }
+      hasSuccessfulConnection.current = false;
     };
   }, [modeState, wsUrl, dispatch]);
 

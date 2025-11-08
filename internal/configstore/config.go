@@ -21,6 +21,8 @@ type Config struct {
 	ProjectEnvVars        map[string]map[string]string
 	Secrets               map[string]string
 	ProjectSecrets        map[string]map[string]string
+	AutoLLMSecrets        *bool
+	ProjectAutoLLMSecrets map[string]*bool
 }
 
 // DecisionScope models the precedence layer that yielded an effective choice.
@@ -66,6 +68,7 @@ func New() Config {
 		ProjectEnvVars:        make(map[string]map[string]string),
 		Secrets:               make(map[string]string),
 		ProjectSecrets:        make(map[string]map[string]string),
+		ProjectAutoLLMSecrets: make(map[string]*bool),
 	}
 }
 
@@ -148,6 +151,18 @@ func (c Config) Clone() Config {
 			dst[key] = value
 		}
 		out.ProjectSecrets[projectPath] = dst
+	}
+	if c.AutoLLMSecrets != nil {
+		out.AutoLLMSecrets = boolPtr(*c.AutoLLMSecrets)
+	}
+	for projectPath, value := range c.ProjectAutoLLMSecrets {
+		if value == nil {
+			continue
+		}
+		if out.ProjectAutoLLMSecrets == nil {
+			out.ProjectAutoLLMSecrets = make(map[string]*bool)
+		}
+		out.ProjectAutoLLMSecrets[projectPath] = boolPtr(*value)
 	}
 	out.TargetImage = c.TargetImage
 	return out
@@ -289,6 +304,34 @@ func (c *Config) ensureInitialized() {
 			c.ProjectSecrets[key] = make(map[string]string)
 		}
 	}
+	if c.ProjectAutoLLMSecrets == nil {
+		c.ProjectAutoLLMSecrets = make(map[string]*bool)
+	}
+}
+
+func (c Config) ResolveAutoLLMSecrets(projectPath string) (bool, DecisionScope, error) {
+	// Defaults to true when unset globally and per-project.
+	effective := true
+	scope := ScopeUnset
+
+	if strings.TrimSpace(projectPath) != "" {
+		normalized, err := normalizeProjectKey(projectPath)
+		if err != nil {
+			return false, ScopeUnset, err
+		}
+		if v, ok := c.ProjectAutoLLMSecrets[normalized]; ok && v != nil {
+			effective = *v
+			scope = ScopeProject
+			return effective, scope, nil
+		}
+	}
+
+	if c.AutoLLMSecrets != nil {
+		effective = *c.AutoLLMSecrets
+		scope = ScopeGlobal
+	}
+
+	return effective, scope, nil
 }
 
 func boolPtr(v bool) *bool {

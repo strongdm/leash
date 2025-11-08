@@ -97,7 +97,7 @@ sequenceDiagram
 ```
 
 ## Security: Target Workload Isolation
-- Placeholders: random lowercase alphanumeric; length derived from secret length.
+- Placeholders: random lowercase alphanumeric; length derived from secret length with a minimum of 32 characters.
 - Scope: secret values never enter the target env; only placeholders do.
 - Surface: API + UI bind to loopback by default, target container is not permitted to access the `leashd` API.
 
@@ -106,3 +106,5 @@ sequenceDiagram
 **Environment forwarding** recognizes comon LLM coder API keys and automatically transforms them into Leash Secrets (e.g. `ANTHROPIC_API_KEY` -> `claude`, `OPENAI_API_KEY` -> `codex`, etc.).
 
 Even Claude won't know your actual ANTHROPIC_API_KEY!
+
+Disable this auto-registration when needed by passing `-S`/`--no-auto-llm-secrets` on the CLI, or by setting `auto_llm_secrets = false` globally (under `[leash]`) or per project in `config.toml`.

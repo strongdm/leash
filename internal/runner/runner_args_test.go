@@ -200,6 +200,26 @@ func TestParseArgsSecretFlags(t *testing.T) {
 	}
 }
 
+func TestParseArgsDisableAutoLLMSecretsFlag(t *testing.T) {
+	t.Parallel()
+
+	opts, err := parseArgs([]string{"-S", "--", "codex"})
+	if err != nil {
+		t.Fatalf("parseArgs returned error: %v", err)
+	}
+	if !opts.disableAutoLLMSecrets {
+		t.Fatalf("expected -S to disable auto LLM secrets")
+	}
+
+	opts, err = parseArgs([]string{"--no-auto-llm-secrets", "codex"})
+	if err != nil {
+		t.Fatalf("parseArgs returned error: %v", err)
+	}
+	if !opts.disableAutoLLMSecrets {
+		t.Fatalf("expected --no-auto-llm-secrets to disable auto LLM secrets")
+	}
+}
+
 func TestParseArgsSecretInvalid(t *testing.T) {
 	t.Parallel()
 
@@ -306,6 +326,28 @@ func TestParseArgsAutoEnvCodex(t *testing.T) {
 	final := resolveEnvVars(opts.envVars, nil, opts.subcommand)
 	if containsEnvWithKey(final, "OPENAI_API_KEY") {
 		t.Fatalf("expected OPENAI_API_KEY to be excluded from env vars, got %v", final)
+	}
+}
+
+func TestParseArgsAutoEnvDefaultCommand(t *testing.T) {
+	setEnv(t, "OPENAI_API_KEY", "openai-secret")
+	clearEnv(t, "ANTHROPIC_API_KEY")
+	clearEnv(t, "DASHSCOPE_API_KEY")
+	clearEnv(t, "GEMINI_API_KEY")
+
+	opts, err := parseArgs([]string{"--", "bash"})
+	if err != nil {
+		t.Fatalf("parseArgs returned error: %v", err)
+	}
+
+	layer := cliEnvLayer(opts.envVars)
+	auto := autoSecretSpecs(opts.subcommand, layer, opts.secretSpecs, nil)
+	if !containsSecret(auto, "OPENAI_API_KEY", "openai-secret") {
+		t.Fatalf("expected OPENAI_API_KEY to be captured as secret for default command, got %+v", auto)
+	}
+	final := resolveEnvVars(opts.envVars, nil, opts.subcommand)
+	if containsEnvWithKey(final, "OPENAI_API_KEY") {
+		t.Fatalf("expected OPENAI_API_KEY to be excluded from env vars for default command, got %v", final)
 	}
 }
 

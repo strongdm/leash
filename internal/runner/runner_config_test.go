@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/strongdm/leash/internal/configstore"
 )
 
 // This test resets many env vars to exercise temp workdir creation; keep it
@@ -78,6 +80,88 @@ func TestLoadConfigRespectsEnvWorkDir(t *testing.T) {
 	if cfg.workDir != custom {
 		t.Fatalf("expected workDir %q, got %q", custom, cfg.workDir)
 	}
+}
+
+func TestLoadConfigAutoLLMSecretsPrecedence(t *testing.T) {
+	t.Run("defaultEnabled", func(t *testing.T) {
+		clearEnv(t, "LEASH_WORK_DIR")
+		clearEnv(t, "LEASH_LOG_DIR")
+		clearEnv(t, "LEASH_CFG_DIR")
+		clearEnv(t, "LEASH_WORKSPACE_DIR")
+		clearEnv(t, "LEASH_HOME")
+		setEnv(t, "XDG_CONFIG_HOME", t.TempDir())
+		clearEnv(t, "LEASH_TARGET_IMAGE")
+		clearEnv(t, "TARGET_IMAGE")
+		clearEnv(t, "TARGET_CONTAINER")
+		clearEnv(t, "LEASH_CONTAINER")
+
+		caller := t.TempDir()
+		cfg, _, _, err := loadConfig(caller, options{})
+		if err != nil {
+			t.Fatalf("loadConfig returned error: %v", err)
+		}
+		if !cfg.autoLLMSecrets {
+			t.Fatalf("expected auto LLM secrets to default to true")
+		}
+	})
+
+	t.Run("configDisables", func(t *testing.T) {
+		clearEnv(t, "LEASH_WORK_DIR")
+		clearEnv(t, "LEASH_LOG_DIR")
+		clearEnv(t, "LEASH_CFG_DIR")
+		clearEnv(t, "LEASH_WORKSPACE_DIR")
+		clearEnv(t, "LEASH_HOME")
+		setEnv(t, "XDG_CONFIG_HOME", t.TempDir())
+		clearEnv(t, "LEASH_TARGET_IMAGE")
+		clearEnv(t, "TARGET_IMAGE")
+		clearEnv(t, "TARGET_CONTAINER")
+		clearEnv(t, "LEASH_CONTAINER")
+
+		cfgStore := configstore.New()
+		value := false
+		cfgStore.AutoLLMSecrets = &value
+		if err := configstore.Save(cfgStore); err != nil {
+			t.Fatalf("Save config: %v", err)
+		}
+
+		caller := t.TempDir()
+		cfg, _, _, err := loadConfig(caller, options{})
+		if err != nil {
+			t.Fatalf("loadConfig returned error: %v", err)
+		}
+		if cfg.autoLLMSecrets {
+			t.Fatalf("expected config to disable auto LLM secrets")
+		}
+	})
+
+	t.Run("cliDisables", func(t *testing.T) {
+		clearEnv(t, "LEASH_WORK_DIR")
+		clearEnv(t, "LEASH_LOG_DIR")
+		clearEnv(t, "LEASH_CFG_DIR")
+		clearEnv(t, "LEASH_WORKSPACE_DIR")
+		clearEnv(t, "LEASH_HOME")
+		setEnv(t, "XDG_CONFIG_HOME", t.TempDir())
+		clearEnv(t, "LEASH_TARGET_IMAGE")
+		clearEnv(t, "TARGET_IMAGE")
+		clearEnv(t, "TARGET_CONTAINER")
+		clearEnv(t, "LEASH_CONTAINER")
+
+		cfgStore := configstore.New()
+		value := true
+		cfgStore.AutoLLMSecrets = &value
+		if err := configstore.Save(cfgStore); err != nil {
+			t.Fatalf("Save config: %v", err)
+		}
+
+		caller := t.TempDir()
+		cfg, _, _, err := loadConfig(caller, options{disableAutoLLMSecrets: true})
+		if err != nil {
+			t.Fatalf("loadConfig returned error: %v", err)
+		}
+		if cfg.autoLLMSecrets {
+			t.Fatalf("expected CLI flag to disable auto LLM secrets")
+		}
+	})
 }
 
 func clearEnv(t *testing.T, key string) {

@@ -340,6 +340,137 @@ ZED = "ZAP"
 	}
 }
 
+func TestResolveAutoLLMSecretsPrecedence(t *testing.T) {
+	cfg := New()
+	projectDir := t.TempDir()
+	normalized, err := normalizeProjectKey(projectDir)
+	if err != nil {
+		t.Fatalf("normalize project: %v", err)
+	}
+	cfg.AutoLLMSecrets = boolPtr(false)
+	cfg.ProjectAutoLLMSecrets[normalized] = boolPtr(true)
+
+	projectValue, scope, err := cfg.ResolveAutoLLMSecrets(projectDir)
+	if err != nil {
+		t.Fatalf("ResolveAutoLLMSecrets(project): %v", err)
+	}
+	if !projectValue || scope != ScopeProject {
+		t.Fatalf("expected project override true, got value=%v scope=%v", projectValue, scope)
+	}
+
+	globalValue, scope, err := cfg.ResolveAutoLLMSecrets("")
+	if err != nil {
+		t.Fatalf("ResolveAutoLLMSecrets(global): %v", err)
+	}
+	if globalValue || scope != ScopeGlobal {
+		t.Fatalf("expected global false, got value=%v scope=%v", globalValue, scope)
+	}
+
+	delete(cfg.ProjectAutoLLMSecrets, normalized)
+	projectValue, scope, err = cfg.ResolveAutoLLMSecrets(projectDir)
+	if err != nil {
+		t.Fatalf("ResolveAutoLLMSecrets(project w/o override): %v", err)
+	}
+	if projectValue || scope != ScopeGlobal {
+		t.Fatalf("expected global fallback false, got value=%v scope=%v", projectValue, scope)
+	}
+
+	cfg.AutoLLMSecrets = nil
+	projectValue, scope, err = cfg.ResolveAutoLLMSecrets(projectDir)
+	if err != nil {
+		t.Fatalf("ResolveAutoLLMSecrets(project default): %v", err)
+	}
+	if !projectValue || scope != ScopeUnset {
+		t.Fatalf("expected default true when unset, got value=%v scope=%v", projectValue, scope)
+	}
+}
+
+func TestLoadAutoLLMSecretsFromConfig(t *testing.T) {
+	testSetEnv(t, "LEASH_HOME", "")
+	base := t.TempDir()
+	testSetEnv(t, "XDG_CONFIG_HOME", base)
+	setHome(t, filepath.Join(base, "home"))
+
+	projectDir := filepath.Join(base, "proj")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("mkdir project: %v", err)
+	}
+	projectLiteral := strings.ReplaceAll(projectDir, "\\", "\\\\")
+
+	content := fmt.Sprintf(`
+[leash]
+auto_llm_secrets = false
+
+[projects.%q]
+auto_llm_secrets = true
+`, projectLiteral)
+
+	dir, file, err := GetConfigPath()
+	if err != nil {
+		t.Fatalf("GetConfigPath: %v", err)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
+	if err := os.WriteFile(file, []byte(strings.TrimSpace(content)+"\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.AutoLLMSecrets == nil || *cfg.AutoLLMSecrets {
+		t.Fatalf("expected global auto_llm_secrets=false, got %+v", cfg.AutoLLMSecrets)
+	}
+	normalized, err := normalizeProjectKey(projectDir)
+	if err != nil {
+		t.Fatalf("normalize project: %v", err)
+	}
+	projectSetting := cfg.ProjectAutoLLMSecrets[normalized]
+	if projectSetting == nil || !*projectSetting {
+		t.Fatalf("expected project auto_llm_secrets=true, got %+v", projectSetting)
+	}
+}
+
+func TestPersistAutoLLMSecretsRoundtrip(t *testing.T) {
+	testSetEnv(t, "LEASH_HOME", "")
+	base := t.TempDir()
+	testSetEnv(t, "XDG_CONFIG_HOME", base)
+	setHome(t, filepath.Join(base, "home"))
+
+	cfg := New()
+	global := true
+	cfg.AutoLLMSecrets = &global
+
+	projectDir := filepath.Join(base, "project")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("mkdir project: %v", err)
+	}
+	normalized, err := normalizeProjectKey(projectDir)
+	if err != nil {
+		t.Fatalf("normalize project: %v", err)
+	}
+	projectValue := false
+	cfg.ProjectAutoLLMSecrets[normalized] = &projectValue
+
+	if err := Save(cfg); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	loaded, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if loaded.AutoLLMSecrets == nil || !*loaded.AutoLLMSecrets {
+		t.Fatalf("expected global auto_llm_secrets=true after roundtrip, got %+v", loaded.AutoLLMSecrets)
+	}
+	projectSetting := loaded.ProjectAutoLLMSecrets[normalized]
+	if projectSetting == nil || *projectSetting {
+		t.Fatalf("expected project auto_llm_secrets=false after roundtrip, got %+v", projectSetting)
+	}
+}
+
 // This test sets HOME and expands environment variables; execute serially to
 // prevent shared state leaks.
 func TestLoadProjectKeysWithExpansions(t *testing.T) {
