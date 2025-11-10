@@ -286,18 +286,10 @@ func TestNetConnectDecisionAllowedWithoutHTTPResponse(t *testing.T) {
 
 	time.Sleep(1 * time.Second)
 
-	grepCmd := exec.Command("docker", "exec", names.leash, "sh", "-c",
-		fmt.Sprintf("grep -F 'addr=\"%s:%d\"' /log/events.log | tail -n 1 || true", hostIP, tcpPort),
-	)
-	logLineBytes, err := grepCmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("failed to inspect event log: %v\nstderr=%s", err, string(logLineBytes))
-	}
-	logLine := strings.TrimSpace(string(logLineBytes))
-	if logLine == "" {
-		fullLogCmd := exec.Command("docker", "exec", names.leash, "sh", "-c", "tail -n 200 /log/events.log")
-		fullLog, _ := fullLogCmd.CombinedOutput()
-		t.Fatalf("no event log entry found for addr=\"%s:%d\".\nrecent log tail:\n%s", hostIP, tcpPort, string(fullLog))
+	logContent := readEventLog(t, names.leash)
+	logLine, found := findHTTPLogLine(logContent, hostIP, tcpPort)
+	if !found {
+		t.Fatalf("no event log entry found for addr=\"%s:%d\".\nrecent log tail:\n%s", hostIP, tcpPort, tailLines(logContent, 200))
 	}
 	if !strings.Contains(logLine, "decision=allowed") {
 		t.Fatalf("expected decision=allowed in log entry, got: %s", logLine)
@@ -435,18 +427,10 @@ forbid (principal, action == Action::"NetworkConnect", resource == Host::"%s:%d"
 	case <-time.After(5 * time.Second):
 	}
 
-	grepCmd := exec.Command("docker", "exec", names.leash, "sh", "-c",
-		fmt.Sprintf("grep -F 'addr=\"%s:%d\"' /log/events.log | tail -n 1 || true", hostIP, tcpPort),
-	)
-	logLineBytes, err := grepCmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("failed to inspect event log: %v\nstderr=%s", err, string(logLineBytes))
-	}
-	logLine := strings.TrimSpace(string(logLineBytes))
-	if logLine == "" {
-		fullLogCmd := exec.Command("docker", "exec", names.leash, "sh", "-c", "tail -n 200 /log/events.log")
-		fullLog, _ := fullLogCmd.CombinedOutput()
-		t.Fatalf("no event log entry found for addr=\"%s:%d\" after policy deny.\nrecent log tail:\n%s", hostIP, tcpPort, string(fullLog))
+	logContent := readEventLog(t, names.leash)
+	logLine, found := findHTTPLogLine(logContent, hostIP, tcpPort)
+	if !found {
+		t.Fatalf("no event log entry found for addr=\"%s:%d\" after policy deny.\nrecent log tail:\n%s", hostIP, tcpPort, tailLines(logContent, 200))
 	}
 	if !strings.Contains(logLine, "decision=denied") {
 		t.Fatalf("expected decision=denied in log entry, got: %s", logLine)
@@ -465,6 +449,45 @@ func applyPolicy(t *testing.T, apiBase, cedar string) {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("apply policy unexpected status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
+}
+
+func readEventLog(t *testing.T, container string) string {
+	t.Helper()
+	cmd := exec.Command("docker", "exec", container, "sh", "-c", "cat /log/events.log 2>/dev/null || true")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("read events.log from %s: %v (output=%s)", container, err, string(output))
+	}
+	return string(output)
+}
+
+func findHTTPLogLine(logContent, host string, port int) (string, bool) {
+	lines := strings.Split(logContent, "\n")
+	hostNeedle := fmt.Sprintf(`addr="%s`, host)
+	portNeedle := fmt.Sprintf(":%d", port)
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+		if strings.Contains(line, "event=http.request") &&
+			strings.Contains(line, hostNeedle) &&
+			strings.Contains(line, portNeedle) {
+			return line, true
+		}
+	}
+	return "", false
+}
+
+func tailLines(content string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	lines := strings.Split(content, "\n")
+	if len(lines) <= limit {
+		return strings.TrimRight(content, "\n")
+	}
+	return strings.Join(lines[len(lines)-limit:], "\n")
 }
 
 func findRepoRoot() (string, error) {
