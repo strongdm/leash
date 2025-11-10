@@ -27,6 +27,40 @@ type capturedRequest struct {
 	err           error
 }
 
+const (
+	readinessTimeout      = 10 * time.Second
+	readinessPollInterval = 50 * time.Millisecond
+)
+
+var errReadinessTimeout = errors.New("readiness timeout")
+
+func waitForReadiness(t *testing.T, resource string, readinessCheck func() bool) {
+	t.Helper()
+	if err := pollReadiness(context.Background(), readinessCheck); err != nil {
+		t.Fatalf("timed out waiting for %s after %s", resource, readinessTimeout)
+	}
+}
+
+func pollReadiness(ctx context.Context, readinessCheck func() bool) error {
+	timeoutTimer := time.NewTimer(readinessTimeout)
+	ticker := time.NewTicker(readinessPollInterval)
+	defer timeoutTimer.Stop()
+	defer ticker.Stop()
+
+	for {
+		if readinessCheck() {
+			return nil
+		}
+		select {
+		case <-timeoutTimer.C:
+			return errReadinessTimeout
+		case <-ticker.C:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
 // TestSecretsProxyReplacesPlaceholders exercises the Leash
 // HTTP proxy secrets placeholder replacement functionality.
 func TestSecretsProxyReplacesPlaceholders(t *testing.T) {
@@ -284,13 +318,18 @@ func TestNetConnectDecisionAllowedWithoutHTTPResponse(t *testing.T) {
 		t.Fatalf("timed out waiting for TCP listener to receive connection")
 	}
 
-	time.Sleep(1 * time.Second)
-
-	logContent := readEventLog(t, names.leash)
-	logLine, found := findHTTPLogLine(logContent, hostIP, tcpPort)
-	if !found {
-		t.Fatalf("no event log entry found for addr=\"%s:%d\".\nrecent log tail:\n%s", hostIP, tcpPort, tailLines(logContent, 200))
+	var (
+		logContent string
+		logLine    string
+	)
+	readinessCheck := func() bool {
+		logContent = readEventLog(t, names.leash)
+		var found bool
+		logLine, found = findHTTPLogLine(logContent, hostIP, tcpPort)
+		return found
 	}
+	waitForReadiness(t, "proxy event log entry", readinessCheck)
+
 	if !strings.Contains(logLine, "decision=allowed") {
 		t.Fatalf("expected decision=allowed in log entry, got: %s", logLine)
 	}
@@ -406,7 +445,35 @@ permit (principal, action == Action::"NetworkConnect", resource);
 forbid (principal, action == Action::"NetworkConnect", resource == Host::"%s:%d");`, hostIP, tcpPort)
 	applyPolicy(t, apiBase, cedar)
 
-	time.Sleep(500 * time.Millisecond)
+	readinessCheck := func() bool {
+		resp, err := http.Get(apiBase + "/api/policies")
+		if err != nil {
+			return false
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return false
+		}
+		var body struct {
+			Runtime struct {
+				LSM []struct {
+					Operation string `json:"operation"`
+					Target    string `json:"target"`
+				} `json:"lsm"`
+			} `json:"runtime"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+			return false
+		}
+		needle := fmt.Sprintf("%s:%d", hostIP, tcpPort)
+		for _, rule := range body.Runtime.LSM {
+			if rule.Operation == "net.connect" && rule.Target == needle {
+				return true
+			}
+		}
+		return false
+	}
+	waitForReadiness(t, "policy runtime update", readinessCheck)
 
 	curlCmd := exec.CommandContext(ctx,
 		"docker", "exec", names.target,
@@ -551,20 +618,27 @@ func waitForControlPort(ctx context.Context, buf *safeBuffer, done <-chan error)
 func waitForAPI(ctx context.Context, base string) error {
 	client := &http.Client{Timeout: 5 * time.Second}
 	url := fmt.Sprintf("%s/api/secrets", base)
-	for {
+	readinessCheck := func() bool {
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return false
 		}
 		resp, err := client.Get(url)
 		if err == nil && resp.StatusCode == http.StatusOK {
 			resp.Body.Close()
-			return nil
+			return true
 		}
 		if resp != nil {
 			resp.Body.Close()
 		}
-		time.Sleep(500 * time.Millisecond)
+		return false
 	}
+	if err := pollReadiness(ctx, readinessCheck); err != nil {
+		if errors.Is(err, errReadinessTimeout) {
+			return fmt.Errorf("timed out waiting for API ready at %s", url)
+		}
+		return err
+	}
+	return nil
 }
 
 func createSecret(base, id, value string) (string, error) {
