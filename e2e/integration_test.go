@@ -3,9 +3,11 @@ package e2e
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -23,57 +25,64 @@ import (
 
 const (
 	leashImage          = "ghcr.io/strongdm/leash:latest"
-	httpbinURL          = "https://httpbin.org/get"
 	expectTimeout       = 15 * time.Second
 	imageBuildTimeout   = 12 * time.Minute
 	localPolicyHTTPPort = 18081
+	httpBinDomain       = "httpbin.integration.local"
 )
 
-func TestIntegration(t *testing.T) {
+func TestIntegrationVariants(t *testing.T) {
 	skipUnlessE2E(t)
-
-	liteMode := isLiteMode()
-	if liteMode {
-		t.Log("lite mode enabled: kernel enforcement will be skipped")
+	if err := checkDockerAvailable(); err != nil {
+		t.Fatalf("docker not available: %v", err)
 	}
+	ensureImage(t, leashImage, buildLeashImage)
+}
 
+func TestIntegrationAlpine(t *testing.T) {
+	runIntegrationVariant(t, "alpine")
+}
+
+func TestIntegrationDebian(t *testing.T) {
+	runIntegrationVariant(t, "debian")
+}
+
+func TestIntegrationRocky(t *testing.T) {
+	runIntegrationVariant(t, "rocky")
+}
+
+func runIntegrationVariant(t *testing.T, variant string) {
+	skipUnlessE2E(t)
+	if spec := strings.TrimSpace(os.Getenv("TEST_VARIANT")); spec != "" {
+		if !variantRequested(spec, variant) {
+			t.Skipf("variant %s not requested via TEST_VARIANT", variant)
+		}
+	}
 	if err := checkDockerAvailable(); err != nil {
 		t.Skipf("skipping: docker not available: %v", err)
 	}
-
 	ensureImage(t, leashImage, buildLeashImage)
 
-	httpClient := &http.Client{
-		Timeout: 5 * time.Second,
-	}
-	if err := checkHTTPConnectivity(httpClient, httpbinURL); err != nil {
-		t.Skipf("skipping: external dependency unavailable: %v", err)
+	cfg, err := newVariantConfig(variant)
+	if err != nil {
+		t.Fatalf("unsupported variant %q: %v", variant, err)
 	}
 
-	for _, variant := range variantsToRun() {
-		variant := variant
-		t.Run(variant, func(t *testing.T) {
-			cfg, err := newVariantConfig(variant)
-			if err != nil {
-				t.Fatalf("unsupported variant %q: %v", variant, err)
-			}
+	imageName := fmt.Sprintf("leash-test-%s", variant)
+	ensureImage(t, imageName, func(ctx context.Context) error {
+		return buildVariantImage(ctx, variant)
+	})
 
-			imageName := fmt.Sprintf("leash-test-%s", variant)
-			ensureImage(t, imageName, func(ctx context.Context) error {
-				return buildVariantImage(ctx, variant)
-			})
-
-			runIntegrationSuite(t, cfg, liteMode)
-		})
-	}
+	runIntegrationSuite(t, cfg)
 }
 
-func isLiteMode() bool {
-	if val := os.Getenv("LEASH_E2E_LITE"); val != "" {
-		return envTruthy(val)
-	}
-	if _, err := os.Stat("/sys/fs/cgroup"); err != nil {
-		return true
+func variantRequested(spec, variant string) bool {
+	for _, part := range strings.FieldsFunc(spec, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\t' || r == '\n'
+	}) {
+		if strings.EqualFold(strings.TrimSpace(part), variant) {
+			return true
+		}
 	}
 	return false
 }
@@ -92,20 +101,21 @@ type variantConfig struct {
 
 	pingCmd []string
 
-	wgetCmd       []string
-	wgetHeaderCmd []string
+	wgetCmd       func(host string, port int) []string
+	wgetHeaderCmd func(host string, port int) []string
 }
 
 type variantEnv struct {
-	ctx        context.Context
-	cancel     context.CancelFunc
-	variant    variantConfig
-	targetName string
-	leashName  string
-	policyPath string
-	logPath    string
-	logDir     string
-	lite       bool
+	ctx         context.Context
+	cancel      context.CancelFunc
+	variant     variantConfig
+	targetName  string
+	leashName   string
+	policyPath  string
+	logPath     string
+	logDir      string
+	httpBinHost string
+	httpBinPort int
 }
 
 type commandExpectation struct {
@@ -122,16 +132,20 @@ func newVariantConfig(name string) (variantConfig, error) {
 	switch name {
 	case "alpine":
 		return variantConfig{
-			name:          name,
-			initialRules:  []string{},
-			denyExecCmd:   []string{"sh", "-c", "apk --version"},
-			allowRule:     "allow proc.exec /sbin/apk",
-			allowExecCmd:  []string{"sh", "-c", "apk --version"},
-			denyArgsRule:  "deny proc.exec /sbin/apk git",
-			denyArgsCmd:   []string{"sh", "-c", "apk add git"},
-			pingCmd:       []string{"sh", "-c", "ping -c 1 1.1.1.1"},
-			wgetCmd:       []string{"sh", "-c", "wget -qO- https://httpbin.org/get"},
-			wgetHeaderCmd: []string{"sh", "-c", "wget -qO- https://httpbin.org/get | grep \"demo-secret123\""},
+			name:         name,
+			initialRules: []string{},
+			denyExecCmd:  []string{"sh", "-c", "apk --version"},
+			allowRule:    "allow proc.exec /sbin/apk",
+			allowExecCmd: []string{"sh", "-c", "apk --version"},
+			denyArgsRule: "deny proc.exec /sbin/apk git",
+			denyArgsCmd:  []string{"sh", "-c", "apk add git"},
+			pingCmd:      []string{"sh", "-c", "ping -c 1 1.1.1.1"},
+			wgetCmd: func(host string, port int) []string {
+				return []string{"sh", "-c", fmt.Sprintf("wget -qO- --tries=1 http://%s:%d/get", host, port)}
+			},
+			wgetHeaderCmd: func(host string, port int) []string {
+				return []string{"sh", "-c", fmt.Sprintf("wget -qO- --tries=1 http://%s:%d/get | grep \"demo-secret123\"", host, port)}
+			},
 		}, nil
 	case "debian":
 		return variantConfig{
@@ -142,14 +156,18 @@ func newVariantConfig(name string) (variantConfig, error) {
 				"allow proc.exec /usr/bin/wget",
 				"allow proc.exec /usr/bin/grep",
 			},
-			denyExecCmd:   []string{"sh", "-c", "apt -v"},
-			allowRule:     "allow proc.exec /usr/bin/apt",
-			allowExecCmd:  []string{"sh", "-c", "apt -v"},
-			denyArgsRule:  "deny proc.exec /usr/bin/apt git",
-			denyArgsCmd:   []string{"sh", "-c", "apt install -y git"},
-			pingCmd:       []string{"sh", "-c", "ping -c 1 1.1.1.1"},
-			wgetCmd:       []string{"sh", "-c", "wget -qO- --tries=1 https://httpbin.org/get"},
-			wgetHeaderCmd: []string{"sh", "-c", "wget -qO- --tries=1 https://httpbin.org/get | grep \"demo-secret123\""},
+			denyExecCmd:  []string{"sh", "-c", "apt -v"},
+			allowRule:    "allow proc.exec /usr/bin/apt",
+			allowExecCmd: []string{"sh", "-c", "apt -v"},
+			denyArgsRule: "deny proc.exec /usr/bin/apt git",
+			denyArgsCmd:  []string{"sh", "-c", "apt install -y git"},
+			pingCmd:      []string{"sh", "-c", "ping -c 1 1.1.1.1"},
+			wgetCmd: func(host string, port int) []string {
+				return []string{"sh", "-c", fmt.Sprintf("wget -qO- --tries=1 http://%s:%d/get", host, port)}
+			},
+			wgetHeaderCmd: func(host string, port int) []string {
+				return []string{"sh", "-c", fmt.Sprintf("wget -qO- --tries=1 http://%s:%d/get | grep \"demo-secret123\"", host, port)}
+			},
 		}, nil
 	case "rocky":
 		return variantConfig{
@@ -164,45 +182,26 @@ func newVariantConfig(name string) (variantConfig, error) {
 				"allow proc.exec /usr/bin/gpgconf",
 				"allow proc.exec /usr/bin/gpg",
 			},
-			denyExecCmd:   []string{"sh", "-c", "microdnf clean all"},
-			allowRule:     "allow proc.exec /usr/bin/microdnf",
-			allowExecCmd:  []string{"sh", "-c", "microdnf clean all"},
-			denyArgsRule:  "deny proc.exec /usr/bin/microdnf git",
-			denyArgsCmd:   []string{"sh", "-c", "microdnf install -y git"},
-			pingCmd:       []string{"sh", "-c", "ping -c 1 1.1.1.1"},
-			wgetCmd:       []string{"sh", "-c", "wget -qO- --tries=1 https://httpbin.org/get"},
-			wgetHeaderCmd: []string{"sh", "-c", "wget -qO- --tries=1 https://httpbin.org/get | grep \"demo-secret123\""},
+			denyExecCmd:  []string{"sh", "-c", "microdnf clean all"},
+			allowRule:    "allow proc.exec /usr/bin/microdnf",
+			allowExecCmd: []string{"sh", "-c", "microdnf clean all"},
+			denyArgsRule: "deny proc.exec /usr/bin/microdnf git",
+			denyArgsCmd:  []string{"sh", "-c", "microdnf install -y git"},
+			pingCmd:      []string{"sh", "-c", "ping -c 1 1.1.1.1"},
+			wgetCmd: func(host string, port int) []string {
+				return []string{"sh", "-c", fmt.Sprintf("wget -qO- --tries=1 http://%s:%d/get", host, port)}
+			},
+			wgetHeaderCmd: func(host string, port int) []string {
+				return []string{"sh", "-c", fmt.Sprintf("wget -qO- --tries=1 http://%s:%d/get | grep \"demo-secret123\"", host, port)}
+			},
 		}, nil
 	default:
 		return variantConfig{}, fmt.Errorf("unknown variant %q", name)
 	}
 }
 
-func variantsToRun() []string {
-	spec := strings.TrimSpace(os.Getenv("TEST_VARIANT"))
-	if spec == "" {
-		return []string{"alpine", "debian", "rocky"}
-	}
-	parts := strings.FieldsFunc(spec, func(r rune) bool {
-		return r == ',' || r == ' ' || r == '\t' || r == '\n'
-	})
-	var variants []string
-	seen := make(map[string]struct{})
-	for _, p := range parts {
-		if p == "" {
-			continue
-		}
-		if _, ok := seen[p]; ok {
-			continue
-		}
-		seen[p] = struct{}{}
-		variants = append(variants, p)
-	}
-	return variants
-}
-
-func runIntegrationSuite(t *testing.T, cfg variantConfig, lite bool) {
-	env := startVariantEnvironment(t, cfg, lite)
+func runIntegrationSuite(t *testing.T, cfg variantConfig) {
+	env := startVariantEnvironment(t, cfg)
 	t.Cleanup(env.cancel)
 
 	runBaselinePolicyScenarios(t, env)
@@ -269,9 +268,6 @@ func runBaselinePolicyScenarios(t *testing.T, env *variantEnv) {
 	})
 
 	t.Run("baseline/net-allow", func(t *testing.T) {
-		if env.lite {
-			t.Skip("lite mode: skipping external network allow check")
-		}
 		env.runCommand(t, commandExpectation{
 			name:               "baseline/net-allow",
 			command:            env.variant.pingCmd,
@@ -298,7 +294,7 @@ func runBaselinePolicyScenarios(t *testing.T, env *variantEnv) {
 		appendPolicyRule(t, env.policyPath, "allow proc.exec /usr/bin/ssl_client")
 		env.runCommand(t, commandExpectation{
 			name:               "baseline/net-allow-https",
-			command:            env.variant.wgetCmd,
+			command:            env.variant.wgetCmd(env.httpBinHost, env.httpBinPort),
 			allowedExitCodes:   []int{0},
 			retryUntilDeadline: true,
 			ruleRef:            "allow proc.exec /usr/bin/ssl_client",
@@ -307,25 +303,25 @@ func runBaselinePolicyScenarios(t *testing.T, env *variantEnv) {
 
 	t.Run("baseline/http-rewrite", func(t *testing.T) {
 		env.requireEnforcement(t)
-		appendPolicyRule(t, env.policyPath, "allow http.rewrite httpbin.org header:Authorization:Bearer demo-secret123")
+		appendPolicyRule(t, env.policyPath, fmt.Sprintf("allow http.rewrite %s header:Authorization:Bearer demo-secret123", httpBinDomain))
 		env.runCommand(t, commandExpectation{
 			name:               "baseline/http-rewrite",
-			command:            env.variant.wgetHeaderCmd,
+			command:            env.variant.wgetHeaderCmd(env.httpBinHost, env.httpBinPort),
 			allowedExitCodes:   []int{0},
 			retryUntilDeadline: true,
-			ruleRef:            "allow http.rewrite httpbin.org header:Authorization:Bearer demo-secret123",
+			ruleRef:            fmt.Sprintf("allow http.rewrite %s header:Authorization:Bearer demo-secret123", httpBinDomain),
 		})
 	})
 
 	t.Run("baseline/net-deny-host", func(t *testing.T) {
 		env.requireEnforcement(t)
-		appendPolicyRule(t, env.policyPath, "deny net.send httpbin.org")
+		appendPolicyRule(t, env.policyPath, fmt.Sprintf("deny net.send %s", httpBinDomain))
 		env.runCommand(t, commandExpectation{
 			name:               "baseline/net-deny-host",
-			command:            env.variant.wgetCmd,
+			command:            env.variant.wgetCmd(env.httpBinHost, env.httpBinPort),
 			allowedExitCodes:   []int{1, 4, 5, 6, 7, 8},
 			retryUntilDeadline: true,
-			ruleRef:            "deny net.send httpbin.org",
+			ruleRef:            fmt.Sprintf("deny net.send %s", httpBinDomain),
 		})
 	})
 }
@@ -456,9 +452,6 @@ func (env *variantEnv) runCommand(t *testing.T, exp commandExpectation) {
 
 func (env *variantEnv) requireEnforcement(t *testing.T) {
 	t.Helper()
-	if env.lite {
-		t.Skip("lite mode: kernel enforcement unavailable")
-	}
 }
 
 func (env *variantEnv) failCommand(t *testing.T, exp commandExpectation, res execResult, extra string) {
@@ -710,7 +703,7 @@ func runDockerBuild(ctx context.Context, args []string) error {
 	return nil
 }
 
-func startVariantEnvironment(t *testing.T, cfg variantConfig, lite bool) *variantEnv {
+func startVariantEnvironment(t *testing.T, cfg variantConfig) *variantEnv {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
@@ -741,29 +734,31 @@ func startVariantEnvironment(t *testing.T, cfg variantConfig, lite bool) *varian
 		removeContainer(context.Background(), targetName)
 	})
 
-	var cgroupPath string
-	if lite {
-		ensureDir(t, filepath.Join(leashDir, "cgroup-lite"))
-		cgroupPath = filepath.Join("/leash", "cgroup-lite")
-	} else {
-		cgroupPath = discoverCgroupPath(t, ctx, targetName)
-	}
+	cgroupPath := discoverCgroupPath(t, ctx, targetName)
 
-	runDockerOrFatal(t, ctx, buildLeashArgs(leashName, targetName, cgroupPath, leashDir, logDir, cfgDir, lite))
+	runDockerOrFatal(t, ctx, buildLeashArgs(leashName, targetName, cgroupPath, leashDir, logDir, cfgDir))
 	ensureContainerRunning(t, ctx, leashName)
 
 	waitForManagerLog(t, leashName, "frontend.start", 30*time.Second)
 
+	httpPort, stopHTTP := startHTTPDebugService(t)
+	t.Cleanup(stopHTTP)
+
+	gatewayIP := containerGatewayIP(t, ctx, targetName)
+	addHostsEntryWithIP(t, ctx, targetName, gatewayIP, []string{httpBinDomain})
+	addHostsEntryWithIP(t, ctx, leashName, gatewayIP, []string{httpBinDomain})
+
 	return &variantEnv{
-		ctx:        ctx,
-		cancel:     cancel,
-		variant:    cfg,
-		targetName: targetName,
-		leashName:  leashName,
-		policyPath: policyPath,
-		logPath:    filepath.Join(logDir, "events.log"),
-		logDir:     logDir,
-		lite:       lite,
+		ctx:         ctx,
+		cancel:      cancel,
+		variant:     cfg,
+		targetName:  targetName,
+		leashName:   leashName,
+		policyPath:  policyPath,
+		logPath:     filepath.Join(logDir, "events.log"),
+		logDir:      logDir,
+		httpBinHost: httpBinDomain,
+		httpBinPort: httpPort,
 	}
 }
 
@@ -804,18 +799,6 @@ func imageExists(image string) bool {
 	return cmd.Run() == nil
 }
 
-func checkHTTPConnectivity(client *http.Client, url string) error {
-	resp, err := client.Get(url) // #nosec G107 -- external test dependency
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("unexpected status %d", resp.StatusCode)
-	}
-	return nil
-}
-
 func ensureDir(t *testing.T, path string) string {
 	t.Helper()
 	if err := os.MkdirAll(path, 0o755); err != nil {
@@ -837,6 +820,66 @@ func writeBaselinePolicy(t *testing.T, policyPath string, extra []string) {
 	rules := append(base, extra...)
 	ps, rewrites := parseRulesToPolicy(t, rules)
 	writeCedarPolicy(t, policyPath, ps, rewrites)
+}
+
+func startHTTPDebugService(t *testing.T) (int, func()) {
+	ln, err := net.Listen("tcp", "0.0.0.0:0")
+	if err != nil {
+		t.Fatalf("start httpbin clone listener: %v", err)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/get", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		response := map[string]any{
+			"args": map[string]string{},
+			"headers": map[string]string{
+				"Authorization": r.Header.Get("Authorization"),
+				"Host":          r.Host,
+			},
+			"origin": strings.TrimSpace(strings.Split(r.RemoteAddr, ":")[0]),
+			"url":    fmt.Sprintf("http://%s%s", r.Host, r.URL.RequestURI()),
+		}
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	})
+	server := &http.Server{Handler: mux}
+	go func() {
+		if err := server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			t.Logf("httpbin clone server error: %v", err)
+		}
+	}()
+	stop := func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = server.Shutdown(ctx)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	return port, stop
+}
+
+func containerGatewayIP(t *testing.T, ctx context.Context, container string) string {
+	res := runDockerExec(ctx, container, []string{"sh", "-c", "ip route | awk '/default/ {print $3}'"})
+	if res.err != nil || res.exitCode != 0 {
+		t.Fatalf("determine gateway IP for %s: err=%v exit=%d stderr=%s", container, res.err, res.exitCode, res.stderr)
+	}
+	ip := strings.TrimSpace(res.stdout)
+	if ip == "" {
+		t.Fatalf("determine gateway IP for %s: empty output", container)
+	}
+	return ip
+}
+
+func addHostsEntryWithIP(t *testing.T, ctx context.Context, container, ip string, hosts []string) {
+	if len(hosts) == 0 {
+		return
+	}
+	entry := fmt.Sprintf("%s %s", ip, strings.Join(hosts, " "))
+	cmd := fmt.Sprintf("echo '%s' >> /etc/hosts", entry)
+	res := runDockerExec(ctx, container, []string{"sh", "-c", cmd})
+	if res.err != nil || res.exitCode != 0 {
+		t.Fatalf("update /etc/hosts in %s: err=%v exit=%d stdout=%s stderr=%s", container, res.err, res.exitCode, res.stdout, res.stderr)
+	}
 }
 
 func runDockerOrFatal(t *testing.T, ctx context.Context, args []string) {
@@ -864,7 +907,7 @@ func removeContainer(ctx context.Context, name string) {
 	_ = cmd.Run()
 }
 
-func buildLeashArgs(leashName, targetName, cgroupPath, leashDir, logDir, cfgDir string, lite bool) []string {
+func buildLeashArgs(leashName, targetName, cgroupPath, leashDir, logDir, cfgDir string) []string {
 	args := []string{
 		"run", "-d", "--rm",
 		"--name", leashName,
@@ -873,9 +916,7 @@ func buildLeashArgs(leashName, targetName, cgroupPath, leashDir, logDir, cfgDir 
 		"--network", fmt.Sprintf("container:%s", targetName),
 	}
 
-	if !lite {
-		args = append(args, "-v", "/sys/fs/cgroup:/sys/fs/cgroup:ro")
-	}
+	args = append(args, "-v", "/sys/fs/cgroup:/sys/fs/cgroup:ro")
 
 	args = append(args,
 		"-v", fmt.Sprintf("%s:/log", logDir),
@@ -899,21 +940,38 @@ func buildLeashArgs(leashName, targetName, cgroupPath, leashDir, logDir, cfgDir 
 
 func ensureContainerRunning(t *testing.T, ctx context.Context, name string) {
 	t.Helper()
-	cmd := exec.CommandContext(ctx, "docker", "inspect", "--format", "{{.State.Running}}", name)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		msg := strings.ToLower(strings.TrimSpace(stderr.String()))
-		if isDockerUnavailableMessage(msg) ||
-			strings.Contains(msg, "no such container") ||
-			strings.Contains(msg, "no such object") {
-			t.Skipf("skipping: docker container %s unavailable (%s)", name, msg)
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		select {
+		case <-ctx.Done():
+			t.Fatalf("context canceled while waiting for container %s", name)
+		default:
 		}
-		t.Fatalf("docker inspect %s failed: %v\n%s", name, err, stderr.String())
-	}
-	if strings.TrimSpace(stdout.String()) != "true" {
-		t.Skipf("skipping: docker container %s not running", name)
+
+		cmd := exec.CommandContext(ctx, "docker", "inspect", "--format", "{{.State.Running}}", name)
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		err := cmd.Run()
+		status := strings.TrimSpace(stdout.String())
+		if err == nil && status == "true" {
+			return
+		}
+		if err != nil {
+			msg := strings.ToLower(strings.TrimSpace(stderr.String()))
+			if isDockerUnavailableMessage(msg) ||
+				strings.Contains(msg, "no such container") ||
+				strings.Contains(msg, "no such object") {
+				t.Skipf("skipping: docker container %s unavailable (%s)", name, msg)
+			}
+		}
+		if time.Now().After(deadline) {
+			if err != nil {
+				t.Fatalf("docker inspect %s failed after retries: %v\n%s", name, err, stderr.String())
+			}
+			t.Fatalf("container %s did not reach running state (status=%s)", name, status)
+		}
+		time.Sleep(500 * time.Millisecond)
 	}
 }
 
