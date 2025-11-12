@@ -138,6 +138,9 @@ func setupRuntimeEnv(t *testing.T, includeBadKey bool) (*runtimeConfig, func()) 
 		} else {
 			_ = os.Unsetenv("LEASH_DIR")
 		}
+		if err := os.RemoveAll(base); err != nil {
+			t.Fatalf("cleanup runtime env: %v", err)
+		}
 		privateDirMu.Unlock()
 	}
 	return cfg, cleanup
