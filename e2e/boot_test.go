@@ -299,6 +299,9 @@ when { resource in [ Process::"/bin/sh" ] };`))
 	bootstrapMarker := filepath.Join(shareDir, entrypoint.BootstrapReadyFileName)
 	waitForHostFile(t, bootstrapMarker, 30*time.Second)
 
+	daemonReadyMarker := filepath.Join(shareDir, entrypoint.DaemonReadyFileName)
+	waitForHostFile(t, daemonReadyMarker, 30*time.Second)
+
 	envOutput := dockerExecOutput(t, targetName, "env")
 	if strings.Contains(envOutput, "LEASH_PRIVATE_DIR=") {
 		t.Fatalf("target container unexpectedly received LEASH_PRIVATE_DIR env; env=%q", envOutput)
@@ -318,7 +321,17 @@ when { resource in [ Process::"/bin/sh" ] };`))
 		t.Fatalf("manager container missing private key; exit=%d", exitCode)
 	}
 
-	if exitCode := dockerExecExitCode(t, targetName, "curl", "-sS", "https://example.com", "-o", "/dev/null"); exitCode != 0 {
+	curlOut, exitCode, err := dockerExecCombined(t, targetName, "curl", "-sS", "https://example.com", "-o", "/dev/null")
+	if exitCode != 0 {
+		if err != nil {
+			t.Logf("curl command error: %v", err)
+		}
+		output := strings.TrimSpace(curlOut)
+		if output == "" {
+			output = "(empty)"
+		}
+		t.Logf("curl command output:\n%s", output)
+		logHTTPDiagnostics(t, targetName, leashName)
 		t.Fatalf("curl inside target container failed; exit=%d", exitCode)
 	}
 
@@ -566,6 +579,9 @@ func skipUnlessE2E(t *testing.T) {
 	if !envTruthy(os.Getenv("LEASH_E2E")) {
 		t.Skip("set LEASH_E2E=1 to run end-to-end tests")
 	}
+	if strings.TrimSpace(os.Getenv("LEASH_IMAGE")) == "" {
+		_ = os.Setenv("LEASH_IMAGE", leashImage)
+	}
 }
 
 func envTruthy(val string) bool {
@@ -632,21 +648,34 @@ func runDockerCommand(t *testing.T, timeout time.Duration, args ...string) ([]by
 }
 
 func dockerExecOutput(t *testing.T, container string, args ...string) string {
-	cmdArgs := append([]string{"exec", container}, args...)
-	out, exit, err := runDockerCommand(t, 30*time.Second, cmdArgs...)
-	if err != nil && exit != 0 {
-		t.Fatalf("docker exec %s failed: %v (output=%s)", strings.Join(cmdArgs, " "), err, string(out))
+	t.Helper()
+	out, exit, err := dockerExecCombined(t, container, args...)
+	if err != nil && exit == -1 {
+		t.Fatalf("docker exec %s %s returned error: %v", container, strings.Join(args, " "), err)
 	}
-	return string(out)
+	if exit != 0 {
+		t.Fatalf("docker exec %s %s exited with %d: %s", container, strings.Join(args, " "), exit, strings.TrimSpace(out))
+	}
+	return out
 }
 
 func dockerExecExitCode(t *testing.T, container string, args ...string) int {
-	cmdArgs := append([]string{"exec", container}, args...)
-	_, exit, err := runDockerCommand(t, 30*time.Second, cmdArgs...)
+	t.Helper()
+	_, exit, err := dockerExecCombined(t, container, args...)
 	if err != nil && exit == -1 {
-		t.Fatalf("docker exec %s returned error: %v", strings.Join(cmdArgs, " "), err)
+		t.Fatalf("docker exec %s %s returned error: %v", container, strings.Join(args, " "), err)
 	}
 	return exit
+}
+
+func dockerExecCombined(t *testing.T, container string, args ...string) (string, int, error) {
+	t.Helper()
+	cmdArgs := append([]string{"exec", container}, args...)
+	out, exit, err := runDockerCommand(t, 30*time.Second, cmdArgs...)
+	if err != nil && exit == -1 {
+		return "", exit, fmt.Errorf("docker exec %s: %w", strings.Join(cmdArgs, " "), err)
+	}
+	return string(out), exit, err
 }
 
 func dockerRmForced(t *testing.T, names ...string) {
@@ -655,6 +684,52 @@ func dockerRmForced(t *testing.T, names ...string) {
 	}
 	args := append([]string{"rm", "-f"}, names...)
 	_, _, _ = runDockerCommand(t, 30*time.Second, args...)
+}
+
+func logDockerDiagnostics(t *testing.T, container string, command []string) {
+	t.Helper()
+	if container == "" || len(command) == 0 {
+		return
+	}
+	out, exit, err := dockerExecCombined(t, container, command...)
+	cmdText := fmt.Sprintf("docker exec %s %s", container, strings.Join(command, " "))
+	if err != nil && exit == -1 {
+		t.Logf("[diag] %s -> error: %v", cmdText, err)
+		return
+	}
+	output := strings.TrimSpace(out)
+	if output == "" {
+		output = "(empty)"
+	}
+	t.Logf("[diag] %s -> exit=%d\n%s", cmdText, exit, output)
+}
+
+func logHTTPDiagnostics(t *testing.T, targetName, leashName string) {
+	t.Helper()
+	t.Log("[diag] collecting HTTP diagnostics")
+	if strings.TrimSpace(targetName) != "" {
+		targetCommands := [][]string{
+			{"curl", "-v", "https://example.com", "-o", "/dev/null"},
+			{"sh", "-c", "ping -c 1 -W 2 example.com || true"},
+			{"sh", "-c", "cat /etc/resolv.conf || true"},
+			{"ip", "route"},
+			{"ip", "addr"},
+		}
+		for _, cmd := range targetCommands {
+			logDockerDiagnostics(t, targetName, cmd)
+		}
+	}
+	if strings.TrimSpace(leashName) != "" {
+		managerCommands := [][]string{
+			{"env"},
+			{"sh", "-c", "tail -n 100 /log/events.log || true"},
+			{"sh", "-c", "iptables -t nat -S || true"},
+			{"sh", "-c", "nft list ruleset || true"},
+		}
+		for _, cmd := range managerCommands {
+			logDockerDiagnostics(t, leashName, cmd)
+		}
+	}
 }
 
 func waitForContainerRunning(t *testing.T, name string, timeout time.Duration) {
@@ -703,6 +778,7 @@ func waitForManagerLog(t *testing.T, container, needle string, timeout time.Dura
 	}
 
 	if err := pollReadiness(ctx, timeout, readinessCheck); err != nil {
+		logHTTPDiagnostics(t, "", container)
 		t.Fatalf("timed out waiting for %q in manager logs", needle)
 	}
 }

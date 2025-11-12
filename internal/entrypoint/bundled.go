@@ -23,6 +23,7 @@ import (
 const (
 	ReadyFileName          = "leash-entry.ready"
 	BootstrapReadyFileName = "bootstrap.ready"
+	DaemonReadyFileName    = "daemon.ready"
 )
 
 var (

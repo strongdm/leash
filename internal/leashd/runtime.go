@@ -148,6 +148,7 @@ type runtimeState struct {
 	policyReady       atomic.Bool
 	closeOnce         sync.Once
 	bootstrapPath     string
+	daemonReadyPath   string
 	telemetryProvider *otel.Provider
 }
 
@@ -398,6 +399,7 @@ func initRuntime(cfg *runtimeConfig, leashDir string) (*runtimeState, error) {
 		lsmManager:        lsmManager,
 		secretsManager:    secrets.NewManager(),
 		bootstrapPath:     filepath.Join(leashDir, entrypoint.BootstrapReadyFileName),
+		daemonReadyPath:   filepath.Join(leashDir, entrypoint.DaemonReadyFileName),
 		telemetryProvider: telemetryProvider,
 	}
 	state.mitmProxy.SetSecretsProvider(state.secretsManager, state.wsHub)
@@ -441,6 +443,9 @@ func (rt *runtimeState) Run() error {
 
 func (rt *runtimeState) activate() error {
 	if skipEnforcement() {
+		if err := rt.writeDaemonReadyMarker(); err != nil {
+			return err
+		}
 		logPolicyEvent("bootstrap.activate", map[string]any{"status": "skipped"})
 		rt.policyReady.Store(true)
 		waitForShutdown()
@@ -460,6 +465,11 @@ func (rt *runtimeState) activate() error {
 			log.Fatal(err)
 		}
 	}()
+
+	logPolicyEvent("bootstrap.daemon-ready.attempt", map[string]any{"path": rt.daemonReadyPath})
+	if err := rt.writeDaemonReadyMarker(); err != nil {
+		return err
+	}
 
 	if err := rt.lsmManager.LoadAndStart(); err != nil {
 		return err
@@ -700,10 +710,59 @@ func clearBootstrapMarker(dir string) error {
 	if dir == "" {
 		dir = "/leash"
 	}
-	marker := filepath.Join(dir, entrypoint.BootstrapReadyFileName)
-	if err := os.Remove(marker); err != nil && !os.IsNotExist(err) {
-		return err
+	markers := []string{
+		filepath.Join(dir, entrypoint.BootstrapReadyFileName),
+		filepath.Join(dir, entrypoint.DaemonReadyFileName),
 	}
+	for _, marker := range markers {
+		if err := os.Remove(marker); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
+}
+
+func (rt *runtimeState) writeDaemonReadyMarker() error {
+	if rt == nil {
+		return fmt.Errorf("runtime state required")
+	}
+	path := strings.TrimSpace(rt.daemonReadyPath)
+	if path == "" {
+		dir := getLeashDirFromEnv()
+		if strings.TrimSpace(dir) == "" {
+			dir = "/leash"
+		}
+		path = filepath.Join(dir, entrypoint.DaemonReadyFileName)
+		rt.daemonReadyPath = path
+	}
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil && !os.IsExist(err) {
+		return fmt.Errorf("ensure daemon ready dir: %w", err)
+	}
+	tmp, err := os.CreateTemp(dir, "daemon.ready.*")
+	if err != nil {
+		return fmt.Errorf("create daemon ready marker: %w", err)
+	}
+	tmpName := tmp.Name()
+	if _, err := tmp.WriteString("1\n"); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return fmt.Errorf("write daemon ready marker: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return fmt.Errorf("sync daemon ready marker: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return fmt.Errorf("close daemon ready marker: %w", err)
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		os.Remove(tmpName)
+		return fmt.Errorf("commit daemon ready marker: %w", err)
+	}
+	logPolicyEvent("bootstrap.daemon-ready", map[string]any{"path": path})
 	return nil
 }
 

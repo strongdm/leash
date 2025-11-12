@@ -2519,26 +2519,42 @@ func (r *runner) waitForFile(path string, attempts int, delay time.Duration) err
 
 func (r *runner) waitForBootstrap(ctx context.Context) error {
 	marker := filepath.Join(r.cfg.shareDir, entrypoint.BootstrapReadyFileName)
+	daemonMarker := filepath.Join(r.cfg.shareDir, entrypoint.DaemonReadyFileName)
 	deadline := time.Now().Add(r.cfg.bootstrapTimeout)
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 
+	reportedBootstrap := false
+	reportedDaemon := false
+
 	for {
+		bootstrapReady := false
 		if _, err := os.Stat(marker); err == nil {
-			if r.verbose {
+			bootstrapReady = true
+			if r.verbose && !reportedBootstrap {
 				if info := describeBootstrapMarker(marker); info != "" {
 					fmt.Printf("Bootstrap complete (%s)\n", info)
 				} else {
 					fmt.Println("Bootstrap complete.")
 				}
+				reportedBootstrap = true
 			}
-			return nil
+		}
+
+		if bootstrapReady {
+			if _, err := os.Stat(daemonMarker); err == nil {
+				if r.verbose && !reportedDaemon {
+					fmt.Printf("Daemon activation complete (marker=%s)\n", daemonMarker)
+					reportedDaemon = true
+				}
+				return nil
+			}
 		}
 
 		if time.Now().After(deadline) {
 			targetState := r.containerSummary(ctx, r.cfg.targetContainer)
 			leashState := r.containerSummary(ctx, r.cfg.leashContainer)
-			return fmt.Errorf("bootstrap timed out after %s (target=%s, leash=%s). Ensure leash-entry is up to date and policy allows CA installation tooling (/bin/sh, update-ca-certificates).", r.cfg.bootstrapTimeout, targetState, leashState)
+			return fmt.Errorf("bootstrap timed out after %s (target=%s, leash=%s). Ensure leash-entry and daemon activation completed successfully.", r.cfg.bootstrapTimeout, targetState, leashState)
 		}
 
 		if state := r.containerSummary(ctx, r.cfg.targetContainer); isTerminalStatus(state) {

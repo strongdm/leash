@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -15,16 +16,18 @@ import (
 )
 
 const (
-	shareRoot      = "/leash"
-	readyFilePath  = shareRoot + "/" + entrypoint.ReadyFileName
-	cgroupPathFile = shareRoot + "/cgroup-path"
-	selfCgroupPath = "/proc/self/cgroup"
-	bootstrapPath  = shareRoot + "/" + entrypoint.BootstrapReadyFileName
-	caCertPath     = shareRoot + "/ca-cert.pem"
+	shareRoot       = "/leash"
+	readyFilePath   = shareRoot + "/" + entrypoint.ReadyFileName
+	cgroupPathFile  = shareRoot + "/cgroup-path"
+	selfCgroupPath  = "/proc/self/cgroup"
+	bootstrapPath   = shareRoot + "/" + entrypoint.BootstrapReadyFileName
+	daemonReadyPath = shareRoot + "/" + entrypoint.DaemonReadyFileName
+	caCertPath      = shareRoot + "/ca-cert.pem"
 )
 
 func main() {
 	_ = os.Remove(bootstrapPath)
+	_ = os.Remove(daemonReadyPath)
 
 	for {
 		if _, err := os.Stat(readyFilePath); err == nil {
@@ -113,6 +116,12 @@ func main() {
 
 	if err := writeBootstrapMarker(); err != nil {
 		os.Stderr.WriteString("leash-error: failed to signal bootstrap completion: " + err.Error() + "\n")
+		os.Exit(1)
+	}
+
+	os.Stderr.WriteString("leash-entry: waiting for daemon activation\n")
+	if err := waitForDaemonReady(); err != nil {
+		os.Stderr.WriteString("leash-error: daemon activation did not complete: " + err.Error() + "\n")
 		os.Exit(1)
 	}
 
@@ -207,6 +216,37 @@ func writeBootstrapMarker() error {
 		return fmt.Errorf("commit marker: %w", err)
 	}
 	return nil
+}
+
+func waitForDaemonReady() error {
+	timeout := daemonReadyTimeout()
+	deadline := time.Now().Add(timeout)
+	for {
+		if _, err := os.Stat(daemonReadyPath); err == nil {
+			return nil
+		} else if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timed out after %s waiting for %s", timeout, daemonReadyPath)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+func daemonReadyTimeout() time.Duration {
+	const defaultTimeout = 30 * time.Second
+	raw := strings.TrimSpace(os.Getenv("LEASH_BOOTSTRAP_TIMEOUT"))
+	if raw == "" {
+		return defaultTimeout
+	}
+	if d, err := time.ParseDuration(raw); err == nil && d > 0 {
+		return d
+	}
+	if secs, err := strconv.Atoi(raw); err == nil && secs > 0 {
+		return time.Duration(secs) * time.Second
+	}
+	return defaultTimeout
 }
 
 func emitCgroupPath() error {
