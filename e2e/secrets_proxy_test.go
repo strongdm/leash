@@ -27,40 +27,6 @@ type capturedRequest struct {
 	err           error
 }
 
-const (
-	readinessTimeout      = 10 * time.Second
-	readinessPollInterval = 50 * time.Millisecond
-)
-
-var errReadinessTimeout = errors.New("readiness timeout")
-
-func waitForReadiness(t *testing.T, resource string, readinessCheck func() bool) {
-	t.Helper()
-	if err := pollReadiness(context.Background(), readinessCheck); err != nil {
-		t.Fatalf("timed out waiting for %s after %s", resource, readinessTimeout)
-	}
-}
-
-func pollReadiness(ctx context.Context, readinessCheck func() bool) error {
-	timeoutTimer := time.NewTimer(readinessTimeout)
-	ticker := time.NewTicker(readinessPollInterval)
-	defer timeoutTimer.Stop()
-	defer ticker.Stop()
-
-	for {
-		if readinessCheck() {
-			return nil
-		}
-		select {
-		case <-timeoutTimer.C:
-			return errReadinessTimeout
-		case <-ticker.C:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
-}
-
 // TestSecretsProxyReplacesPlaceholders exercises the Leash
 // HTTP proxy secrets placeholder replacement functionality.
 func TestSecretsProxyReplacesPlaceholders(t *testing.T) {
@@ -632,7 +598,7 @@ func waitForAPI(ctx context.Context, base string) error {
 		}
 		return false
 	}
-	if err := pollReadiness(ctx, readinessCheck); err != nil {
+	if err := pollReadiness(ctx, readinessTimeout, readinessCheck); err != nil {
 		if errors.Is(err, errReadinessTimeout) {
 			return fmt.Errorf("timed out waiting for API ready at %s", url)
 		}

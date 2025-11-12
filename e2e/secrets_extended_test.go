@@ -292,17 +292,14 @@ func (c *requestCapture) record(r *http.Request) {
 
 func (c *requestCapture) waitForSnapshot(t *testing.T, timeout time.Duration) (http.Header, []byte) {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for {
-		header, body := c.snapshot()
-		if len(body) > 0 || len(header) > 0 {
-			return header, body
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for captured request")
-		}
-		time.Sleep(100 * time.Millisecond)
+	var header http.Header
+	var body []byte
+	readinessCheck := func() bool {
+		header, body = c.snapshot()
+		return len(body) > 0 || len(header) > 0
 	}
+	waitForReadinessWithin(t, "captured request", timeout, readinessCheck)
+	return header, body
 }
 
 func (c *requestCapture) snapshot() (http.Header, []byte) {

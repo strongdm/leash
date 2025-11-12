@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -13,6 +14,13 @@ import (
 	"github.com/strongdm/leash/internal/entrypoint"
 )
 
+// TestControlUIHostAccessTargetDenied verifies that once the loopback policy is
+// applied, a curl from the target container cannot reach the Control UI. The
+// test intentionally waits for enforcement to take effect (curl retries until
+// the connection is actually blocked) instead of relying on sleeps or assuming
+// the policy is ready as soon as /healthz responds. Readiness polling removes
+// the race that used to make the test flaky when the firewall rules were
+// slightly delayed.
 func TestControlUIHostAccessTargetDenied(t *testing.T) {
 	skipUnlessE2E(t)
 
@@ -78,26 +86,52 @@ when { resource in [ Host::"127.0.0.1:%s" ] };`, uiPort)
 	waitForHostFile(t, bootstrapMarker, 30*time.Second)
 
 	healthURL := fmt.Sprintf("http://127.0.0.1:%s/healthz", uiPort)
-	deadline := time.Now().Add(60 * time.Second)
 	client := &http.Client{Timeout: 5 * time.Second}
-	for {
+	waitCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	readinessCheck := func() bool {
 		resp, err := client.Get(healthURL)
-		if err == nil {
-			resp.Body.Close()
-			if resp.StatusCode == http.StatusOK {
-				break
-			}
+		if err != nil {
+			return false
 		}
-		if time.Now().After(deadline) {
-			iptablesDump := dockerExecOutput(t, leashName, "sh", "-c", "iptables-save -t filter")
-			t.Logf("manager filter table:\n%s", iptablesDump)
-			iptablesOutput := dockerExecOutput(t, leashName, "sh", "-c", "iptables -w -S OUTPUT")
-			t.Logf("iptables -S OUTPUT:\n%s", iptablesOutput)
-			logOut, _, _ := runDockerCommand(t, 30*time.Second, "logs", leashName)
-			t.Logf("manager logs:\n%s", string(logOut))
-			t.Fatalf("timed out waiting for Control UI health at %s", healthURL)
+		defer resp.Body.Close()
+		return resp.StatusCode == http.StatusOK
+	}
+
+	if err := pollReadiness(waitCtx, 60*time.Second, readinessCheck); err != nil {
+		iptablesDump := dockerExecOutput(t, leashName, "sh", "-c", "iptables-save -t filter")
+		t.Logf("manager filter table:\n%s", iptablesDump)
+		iptablesOutput := dockerExecOutput(t, leashName, "sh", "-c", "iptables -w -S OUTPUT")
+		t.Logf("iptables -S OUTPUT:\n%s", iptablesOutput)
+		logOut, _, _ := runDockerCommand(t, 30*time.Second, "logs", leashName)
+		t.Logf("manager logs:\n%s", string(logOut))
+		t.Fatalf("timed out waiting for Control UI health at %s", healthURL)
+	}
+
+	curlCmd := fmt.Sprintf("curl --max-time 5 -sS -o /dev/null %s", healthURL)
+	enforced := false
+	start := time.Now()
+	for time.Since(start) < 15*time.Second {
+		_, exit, _ := runDockerCommand(t, 10*time.Second, "exec", targetName, "sh", "-c", curlCmd)
+		if exit != 0 {
+			enforced = true
+			break
 		}
 		time.Sleep(250 * time.Millisecond)
+	}
+	if !enforced {
+		iptablesDump := dockerExecOutput(t, leashName, "sh", "-c", "iptables-save -t filter")
+		t.Logf("manager filter table:\n%s", iptablesDump)
+		iptablesOutput := dockerExecOutput(t, leashName, "sh", "-c", "iptables -w -S OUTPUT")
+		t.Logf("iptables -S OUTPUT:\n%s", iptablesOutput)
+		logOut, _, _ := runDockerCommand(t, 30*time.Second, "logs", leashName)
+		t.Logf("manager logs:\n%s", string(logOut))
+		loopbackEvents := dockerExecOutput(t, leashName, "sh", "-c", "grep -n loopback /log/events.log || true")
+		t.Logf("loopback events:\n%s", loopbackEvents)
+		nftRules := dockerExecOutput(t, leashName, "sh", "-c", "nft list chain inet leash_loopback out_filter || true")
+		t.Logf("nft loopback chain:\n%s", nftRules)
+		t.Fatalf("control UI remained reachable after %s", 15*time.Second)
 	}
 
 	iptablesDump := dockerExecOutput(t, leashName, "sh", "-c", "iptables-save -t filter")

@@ -465,22 +465,17 @@ func waitForPolicyStatus(t *testing.T, url string, want int, timeout time.Durati
 	client := &http.Client{Timeout: 1 * time.Second}
 	defer client.CloseIdleConnections()
 
-	for {
-		select {
-		case <-ctx.Done():
-			t.Fatalf("timed out waiting for status %d at %s", want, url)
-		default:
-			resp, err := client.Get(url) // #nosec G107 -- local test server
-			if err != nil {
-				time.Sleep(250 * time.Millisecond)
-				continue
-			}
-			resp.Body.Close()
-			if resp.StatusCode == want {
-				return
-			}
-			time.Sleep(250 * time.Millisecond)
+	readinessCheck := func() bool {
+		resp, err := client.Get(url) // #nosec G107 -- local test server
+		if err != nil {
+			return false
 		}
+		resp.Body.Close()
+		return resp.StatusCode == want
+	}
+
+	if err := pollReadiness(ctx, timeout, readinessCheck); err != nil {
+		t.Fatalf("timed out waiting for status %d at %s", want, url)
 	}
 }
 
@@ -661,39 +656,51 @@ func dockerRmForced(t *testing.T, names ...string) {
 }
 
 func waitForContainerRunning(t *testing.T, name string, timeout time.Duration) {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	readinessCheck := func() bool {
 		out, exit, err := runDockerCommand(t, 10*time.Second, "inspect", "-f", "{{.State.Status}}", name)
 		if err == nil && exit == 0 {
 			status := strings.TrimSpace(string(out))
 			if status == "running" {
-				return
+				return true
 			}
 		}
-		time.Sleep(250 * time.Millisecond)
+		return false
 	}
-	t.Fatalf("container %s did not reach running state within %s", name, timeout)
+
+	if err := pollReadiness(ctx, timeout, readinessCheck); err != nil {
+		t.Fatalf("container %s did not reach running state within %s", name, timeout)
+	}
 }
 
 func waitForHostFile(t *testing.T, path string, timeout time.Duration) {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	readinessCheck := func() bool {
 		if info, err := os.Stat(path); err == nil && !info.IsDir() {
-			return
+			return true
 		}
-		time.Sleep(200 * time.Millisecond)
+		return false
 	}
-	t.Fatalf("timed out waiting for host file %s", path)
+
+	if err := pollReadiness(ctx, timeout, readinessCheck); err != nil {
+		t.Fatalf("timed out waiting for host file %s", path)
+	}
 }
 
 func waitForManagerLog(t *testing.T, container, needle string, timeout time.Duration) {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	readinessCheck := func() bool {
 		_, exit, _ := runDockerCommand(t, 10*time.Second, "exec", container, "sh", "-c", fmt.Sprintf("grep -q %q /log/events.log", needle))
-		if exit == 0 {
-			return
-		}
-		time.Sleep(500 * time.Millisecond)
+		return exit == 0
 	}
-	t.Fatalf("timed out waiting for %q in manager logs", needle)
+
+	if err := pollReadiness(ctx, timeout, readinessCheck); err != nil {
+		t.Fatalf("timed out waiting for %q in manager logs", needle)
+	}
 }

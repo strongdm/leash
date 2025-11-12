@@ -1,4 +1,4 @@
-package integration
+package e2e
 
 import (
 	"bytes"
@@ -28,13 +28,6 @@ const (
 	imageBuildTimeout   = 12 * time.Minute
 	localPolicyHTTPPort = 18081
 )
-
-func skipUnlessE2E(t *testing.T) {
-	t.Helper()
-	if !envTruthy(os.Getenv("LEASH_E2E")) {
-		t.Skip("set LEASH_E2E=1 to run integration tests")
-	}
-}
 
 func TestIntegration(t *testing.T) {
 	skipUnlessE2E(t)
@@ -424,23 +417,40 @@ func (env *variantEnv) runCommand(t *testing.T, exp commandExpectation) {
 		exp.allowedExitCodes = []int{0}
 	}
 
-	deadline := time.Now().Add(expectTimeout)
-	var last execResult
-	for {
-		last = runDockerExec(env.ctx, env.targetName, exp.command)
-		if containsExit(exp.allowedExitCodes, last.exitCode) {
-			if len(exp.stdoutMustContain) > 0 && !containsAll(last.stdout, exp.stdoutMustContain) {
-				env.failCommand(t, exp, last, fmt.Sprintf("stdout missing substrings %v", exp.stdoutMustContain))
-			}
-			if len(exp.stderrMustContain) > 0 && !containsAll(last.stderr, exp.stderrMustContain) {
-				env.failCommand(t, exp, last, fmt.Sprintf("stderr missing substrings %v", exp.stderrMustContain))
-			}
-			return
+	waitCtx, cancel := context.WithTimeout(env.ctx, expectTimeout)
+	defer cancel()
+
+	last := runDockerExec(waitCtx, env.targetName, exp.command)
+	if containsExit(exp.allowedExitCodes, last.exitCode) {
+		if len(exp.stdoutMustContain) > 0 && !containsAll(last.stdout, exp.stdoutMustContain) {
+			env.failCommand(t, exp, last, fmt.Sprintf("stdout missing substrings %v", exp.stdoutMustContain))
 		}
-		if !exp.retryUntilDeadline || time.Now().After(deadline) {
-			env.failCommand(t, exp, last, "")
+		if len(exp.stderrMustContain) > 0 && !containsAll(last.stderr, exp.stderrMustContain) {
+			env.failCommand(t, exp, last, fmt.Sprintf("stderr missing substrings %v", exp.stderrMustContain))
 		}
-		time.Sleep(500 * time.Millisecond)
+		return
+	}
+
+	if !exp.retryUntilDeadline {
+		env.failCommand(t, exp, last, "")
+	}
+
+	readinessCheck := func() bool {
+		last = runDockerExec(waitCtx, env.targetName, exp.command)
+		if !containsExit(exp.allowedExitCodes, last.exitCode) {
+			return false
+		}
+		if len(exp.stdoutMustContain) > 0 && !containsAll(last.stdout, exp.stdoutMustContain) {
+			env.failCommand(t, exp, last, fmt.Sprintf("stdout missing substrings %v", exp.stdoutMustContain))
+		}
+		if len(exp.stderrMustContain) > 0 && !containsAll(last.stderr, exp.stderrMustContain) {
+			env.failCommand(t, exp, last, fmt.Sprintf("stderr missing substrings %v", exp.stderrMustContain))
+		}
+		return true
+	}
+
+	if err := pollReadiness(waitCtx, expectTimeout, readinessCheck); err != nil {
+		env.failCommand(t, exp, last, "")
 	}
 }
 
@@ -476,18 +486,28 @@ func (env *variantEnv) failCommand(t *testing.T, exp commandExpectation, res exe
 
 func (env *variantEnv) requireLogContains(t *testing.T, want []string, context string) {
 	t.Helper()
-	// Allow log writer to flush.
-	time.Sleep(300 * time.Millisecond)
-
-	data, err := os.ReadFile(env.logPath)
+	var (
+		text string
+		err  error
+	)
+	readinessCheck := func() bool {
+		var data []byte
+		data, err = os.ReadFile(env.logPath)
+		if err != nil {
+			return false
+		}
+		text = string(data)
+		for _, needle := range want {
+			if !strings.Contains(text, needle) {
+				return false
+			}
+		}
+		return true
+	}
+	resource := fmt.Sprintf("log entries for %s", context)
+	waitForReadiness(t, resource, readinessCheck)
 	if err != nil {
 		t.Fatalf("read log file %s: %v", env.logPath, err)
-	}
-	text := string(data)
-	for _, needle := range want {
-		if !strings.Contains(text, needle) {
-			t.Fatalf("[variant=%s context=%s] expected log to contain %q; file path=%s", env.variant.name, context, needle, env.logPath)
-		}
 	}
 }
 
@@ -520,14 +540,17 @@ func startLoopbackHTTPServer(t *testing.T, env *variantEnv) {
 	}
 
 	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		check := runDockerExec(env.ctx, env.targetName, []string{"wget", "-qO", "/dev/null", "--timeout=2", fmt.Sprintf("http://127.0.0.1:%s/", port)})
-		if check.exitCode == 0 {
-			return
-		}
-		time.Sleep(250 * time.Millisecond)
+	waitCtx, cancel := context.WithDeadline(env.ctx, deadline)
+	defer cancel()
+
+	check := func() bool {
+		res := runDockerExec(env.ctx, env.targetName, []string{"wget", "-qO", "/dev/null", "--timeout=2", fmt.Sprintf("http://127.0.0.1:%s/", port)})
+		return res.exitCode == 0
 	}
-	t.Fatalf("[variant=%s] loopback HTTP server did not become ready; inspect /tmp/leash-example-http.log inside %s", env.variant.name, env.targetName)
+
+	if err := pollReadiness(waitCtx, 5*time.Second, check); err != nil {
+		t.Fatalf("[variant=%s] loopback HTTP server did not become ready; inspect /tmp/leash-example-http.log inside %s", env.variant.name, env.targetName)
+	}
 }
 
 func addHostsEntry(t *testing.T, ctx context.Context, container string, hosts []string) {
@@ -729,7 +752,7 @@ func startVariantEnvironment(t *testing.T, cfg variantConfig, lite bool) *varian
 	runDockerOrFatal(t, ctx, buildLeashArgs(leashName, targetName, cgroupPath, leashDir, logDir, cfgDir, lite))
 	ensureContainerRunning(t, ctx, leashName)
 
-	time.Sleep(2 * time.Second)
+	waitForManagerLog(t, leashName, "frontend.start", 30*time.Second)
 
 	return &variantEnv{
 		ctx:        ctx,
@@ -906,7 +929,7 @@ func discoverCgroupPath(t *testing.T, ctx context.Context, container string) str
 		return "/sys/fs/cgroup" + cgroupPath
 	}
 
-	relative, err := dockerExecOutput(ctx, container, []string{"sh", "-c", "awk -F: 'NR==1 {print $3}' /proc/self/cgroup | tr -d '\\r'"})
+	relative, err := dockerExecOutputCtx(ctx, container, []string{"sh", "-c", "awk -F: 'NR==1 {print $3}' /proc/self/cgroup | tr -d '\\r'"})
 	if err != nil {
 		t.Fatalf("read cgroup from container: %v", err)
 	}
@@ -1200,7 +1223,7 @@ func runDockerExec(ctx context.Context, container string, command []string) exec
 	}
 }
 
-func dockerExecOutput(ctx context.Context, container string, command []string) (string, error) {
+func dockerExecOutputCtx(ctx context.Context, container string, command []string) (string, error) {
 	execArgs := append([]string{"exec", container}, command...)
 	cmd := exec.CommandContext(ctx, "docker", execArgs...)
 	var stdout, stderr bytes.Buffer
@@ -1256,15 +1279,6 @@ func isSafeShellRune(r rune) bool {
 		return true
 	}
 	return false
-}
-
-func envTruthy(val string) bool {
-	switch strings.ToLower(strings.TrimSpace(val)) {
-	case "1", "true", "yes", "on":
-		return true
-	default:
-		return false
-	}
 }
 
 func workspaceDir() (string, error) {
