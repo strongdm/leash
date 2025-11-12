@@ -108,16 +108,17 @@ type variantConfig struct {
 }
 
 type variantEnv struct {
-	ctx         context.Context
-	cancel      context.CancelFunc
-	variant     variantConfig
-	targetName  string
-	leashName   string
-	policyPath  string
-	logPath     string
-	logDir      string
-	httpBinHost string
-	httpBinPort int
+	ctx          context.Context
+	cancel       context.CancelFunc
+	variant      variantConfig
+	targetName   string
+	leashName    string
+	cgroupVolume string
+	policyPath   string
+	logPath      string
+	logDir       string
+	httpBinHost  string
+	httpBinPort  int
 }
 
 type commandExpectation struct {
@@ -719,26 +720,36 @@ func startVariantEnvironment(t *testing.T, cfg variantConfig) *variantEnv {
 
 	targetName := fmt.Sprintf("leash-test-target-%s-%d", cfg.name, time.Now().UnixNano())
 	leashName := fmt.Sprintf("leash-test-%s-%d", cfg.name, time.Now().UnixNano())
+	cgroupVolume := fmt.Sprintf("leash-test-cgroup-%s-%d", cfg.name, time.Now().UnixNano())
 
 	removeContainer(ctx, targetName)
 	removeContainer(ctx, leashName)
+	removeVolume(ctx, cgroupVolume)
 
 	runDockerOrFatal(t, ctx, []string{
-		"run", "-d", "--name", targetName,
+		"volume", "create", cgroupVolume,
+	})
+
+	runDockerOrFatal(t, ctx, []string{
+		"run", "-d", "--privileged",
+		"--name", targetName,
 		"-v", fmt.Sprintf("%s:/leash", leashDir),
+		"-v", fmt.Sprintf("%s:/leash/cgroup", cgroupVolume),
 		fmt.Sprintf("leash-test-%s", cfg.name),
 		"sleep", "3600",
 	})
 	ensureContainerRunning(t, ctx, targetName)
+	ensureCgroupMirror(t, ctx, targetName)
 
 	t.Cleanup(func() {
 		removeContainer(context.Background(), leashName)
 		removeContainer(context.Background(), targetName)
+		removeVolume(context.Background(), cgroupVolume)
 	})
 
 	cgroupPath := discoverCgroupPath(t, ctx, targetName)
 
-	runDockerOrFatal(t, ctx, buildLeashArgs(leashName, targetName, cgroupPath, leashDir, logDir, cfgDir))
+	runDockerOrFatal(t, ctx, buildLeashArgs(leashName, targetName, cgroupPath, cgroupVolume, leashDir, logDir, cfgDir))
 	ensureContainerRunning(t, ctx, leashName)
 
 	waitForManagerLog(t, leashName, "frontend.start", 30*time.Second)
@@ -751,16 +762,17 @@ func startVariantEnvironment(t *testing.T, cfg variantConfig) *variantEnv {
 	addHostsEntryWithIP(t, ctx, leashName, gatewayIP, []string{httpBinDomain})
 
 	return &variantEnv{
-		ctx:         ctx,
-		cancel:      cancel,
-		variant:     cfg,
-		targetName:  targetName,
-		leashName:   leashName,
-		policyPath:  policyPath,
-		logPath:     filepath.Join(logDir, "events.log"),
-		logDir:      logDir,
-		httpBinHost: httpBinDomain,
-		httpBinPort: httpPort,
+		ctx:          ctx,
+		cancel:       cancel,
+		variant:      cfg,
+		targetName:   targetName,
+		leashName:    leashName,
+		cgroupVolume: cgroupVolume,
+		policyPath:   policyPath,
+		logPath:      filepath.Join(logDir, "events.log"),
+		logDir:       logDir,
+		httpBinHost:  httpBinDomain,
+		httpBinPort:  httpPort,
 	}
 }
 
@@ -909,7 +921,17 @@ func removeContainer(ctx context.Context, name string) {
 	_ = cmd.Run()
 }
 
-func buildLeashArgs(leashName, targetName, cgroupPath, leashDir, logDir, cfgDir string) []string {
+func removeVolume(ctx context.Context, name string) {
+	if name == "" {
+		return
+	}
+	cmd := exec.CommandContext(ctx, "docker", "volume", "rm", "-f", name)
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	_ = cmd.Run()
+}
+
+func buildLeashArgs(leashName, targetName, cgroupPath, cgroupVolume, leashDir, logDir, cfgDir string) []string {
 	args := []string{
 		"run", "-d", "--rm",
 		"--name", leashName,
@@ -918,7 +940,11 @@ func buildLeashArgs(leashName, targetName, cgroupPath, leashDir, logDir, cfgDir 
 		"--network", fmt.Sprintf("container:%s", targetName),
 	}
 
-	args = append(args, "-v", "/sys/fs/cgroup:/sys/fs/cgroup:ro")
+	if strings.TrimSpace(cgroupVolume) != "" {
+		args = append(args, "-v", fmt.Sprintf("%s:/sys/fs/cgroup:ro", cgroupVolume))
+	} else {
+		args = append(args, "-v", "/sys/fs/cgroup:/sys/fs/cgroup:ro")
+	}
 
 	args = append(args,
 		"-v", fmt.Sprintf("%s:/log", logDir),
@@ -977,16 +1003,41 @@ func ensureContainerRunning(t *testing.T, ctx context.Context, name string) {
 	}
 }
 
+func ensureCgroupMirror(t *testing.T, ctx context.Context, container string) {
+	t.Helper()
+	script := `set -eu
+mkdir -p /leash/cgroup
+if command -v mountpoint >/dev/null 2>&1; then
+  if mountpoint -q /leash/cgroup; then
+    exit 0
+  fi
+fi
+mount --rbind /sys/fs/cgroup /leash/cgroup
+`
+	res := runDockerExec(ctx, container, []string{"sh", "-c", script})
+	if res.exitCode != 0 {
+		t.Fatalf("mirror cgroup filesystem in %s failed: exit=%d stdout=%s stderr=%s", container, res.exitCode, res.stdout, res.stderr)
+	}
+}
+
 func discoverCgroupPath(t *testing.T, ctx context.Context, container string) string {
 	t.Helper()
 
 	cgroupPath, err := dockerInspectField(ctx, container, "{{with .State}}{{with index . \"CgroupPath\"}}{{.}}{{end}}{{end}}")
-	if err == nil && cgroupPath != "" {
-		cgroupPath = strings.TrimSpace(cgroupPath)
-		if !strings.HasPrefix(cgroupPath, "/") {
-			return "/sys/fs/cgroup/" + cgroupPath
+	if err == nil && strings.TrimSpace(cgroupPath) != "" {
+		raw := strings.TrimSpace(cgroupPath)
+		candidate := raw
+		switch {
+		case strings.HasPrefix(raw, "/sys/fs/cgroup"):
+			candidate = raw
+		case strings.HasPrefix(raw, "/"):
+			candidate = filepath.Join("/sys/fs/cgroup", strings.TrimPrefix(raw, "/"))
+		default:
+			candidate = filepath.Join("/sys/fs/cgroup", raw)
 		}
-		return "/sys/fs/cgroup" + cgroupPath
+		if containerPathExists(ctx, container, candidate) {
+			return candidate
+		}
 	}
 
 	relative, err := dockerExecOutputCtx(ctx, container, []string{"sh", "-c", "awk -F: 'NR==1 {print $3}' /proc/self/cgroup | tr -d '\\r'"})
@@ -997,12 +1048,9 @@ func discoverCgroupPath(t *testing.T, ctx context.Context, container string) str
 	if relative == "" {
 		t.Fatalf("unable to determine target cgroup path")
 	}
-	if !strings.HasPrefix(relative, "/") {
-		relative = "/" + relative
-	}
-	path := "/sys/fs/cgroup" + relative
+	path := filepath.Join("/sys/fs/cgroup", strings.TrimPrefix(relative, "/"))
 
-	if path == "/sys/fs/cgroup/" {
+	if path == "/sys/fs/cgroup" {
 		candidates := manualCgroupCandidates(t, ctx, container)
 		if len(candidates) == 0 {
 			t.Fatalf("unable to determine cgroup path for %s", container)
@@ -1054,6 +1102,15 @@ func manualCgroupCandidates(t *testing.T, ctx context.Context, container string)
 		}
 	}
 	return filtered
+}
+
+func containerPathExists(ctx context.Context, container, path string) bool {
+	if strings.TrimSpace(path) == "" {
+		return false
+	}
+	cmd := fmt.Sprintf("test -d %q", path)
+	res := runDockerExec(ctx, container, []string{"sh", "-c", cmd})
+	return res.exitCode == 0
 }
 
 func dockerInspectField(ctx context.Context, container, format string) (string, error) {
