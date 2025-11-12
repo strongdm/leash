@@ -115,7 +115,7 @@ leash -e MY_VAR=value codex bash
 
 Dive deeper with [CEDAR.md](docs/design/CEDAR.md) for ready-to-adapt snippets.
 
-- Telemetry details live in [docs/TELEMETRY.md](docs/TELEMETRY.md).
+- Telemetry details live in [TELEMETRY.md](docs/TELEMETRY.md).
 
 ## Troubleshooting & Next Steps
 
