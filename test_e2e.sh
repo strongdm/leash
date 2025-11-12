@@ -24,6 +24,7 @@ GOFLAGS_VALUE="${GOFLAGS:-}"
 if [[ -z "${GOFLAGS_VALUE}" ]]; then
   GOFLAGS_VALUE="-vet=off"
 fi
+GOFLAGS_VALUE="${GOFLAGS_VALUE} -tags=e2e"
 
 if (( ${#FLAGS[@]} )); then
   LEASH_E2E=1 GOFLAGS="${GOFLAGS_VALUE}" go test -count=1 "${FLAGS[@]}" "$@" ./e2e/...
