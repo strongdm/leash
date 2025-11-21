@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -23,6 +24,13 @@ const (
 	// The card allocates 2 spaces of horizontal padding on each side within the
 	// fixed-width container, so 60 columns remain for inner content.
 	wizardInnerWidth = wizardCardWidth - 4
+)
+
+const (
+	projectDisplayEllipsis  = "..."
+	projectDisplayMaxLen    = 43
+	projectDisplayPrefixLen = 15
+	projectDisplaySuffixLen = projectDisplayMaxLen - projectDisplayPrefixLen - len(projectDisplayEllipsis)
 )
 
 type bubbleTeaPrompter struct {
@@ -169,9 +177,15 @@ type wizardModel struct {
 }
 
 func newWizardModel(cmd, hostDir, project, version string, theme wizardTheme, logo string) *wizardModel {
-	projectName := strings.TrimSpace(filepath.Base(project))
-	if projectName == "" || projectName == "." || projectName == string(filepath.Separator) {
+	projectName := shortenWorkingDir(project)
+	if projectName == "" {
+		projectName = strings.TrimSpace(project)
+	}
+	if projectName == "" {
 		projectName = project
+	}
+	if projectName == "" {
+		projectName = "."
 	}
 
 	opts := []wizardOption{
@@ -184,7 +198,7 @@ func newWizardModel(cmd, hostDir, project, version string, theme wizardTheme, lo
 		},
 		{
 			label: "This project only",
-			desc:  fmt.Sprintf("Remember for %s.", projectName),
+			desc:  "Remember for this directory",
 			hot:   "2",
 			mount: true,
 			scope: configstore.ScopeChoiceProject,
@@ -222,6 +236,78 @@ func newWizardModel(cmd, hostDir, project, version string, theme wizardTheme, lo
 		result:        wizardResult{mount: false, scope: configstore.ScopeChoiceOnce},
 		shimmerColors: colors,
 	}
+}
+
+func shortenWorkingDir(path string) string {
+	return shortenWorkingDirWithHome(path, currentHomeDir())
+}
+
+func shortenWorkingDirWithHome(path, home string) string {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return ""
+	}
+
+	formatted := trimmed
+	if home != "" {
+		formatted = replaceHomePrefix(formatted, home)
+	}
+
+	if len(formatted) <= projectDisplayMaxLen {
+		return formatted
+	}
+
+	suffixStart := len(formatted) - projectDisplaySuffixLen
+	if suffixStart < 0 {
+		suffixStart = 0
+	}
+
+	if len(formatted) < projectDisplayPrefixLen {
+		return formatted
+	}
+
+	return formatted[:projectDisplayPrefixLen] + projectDisplayEllipsis + formatted[suffixStart:]
+}
+
+func currentHomeDir() string {
+	if home := strings.TrimSpace(os.Getenv("HOME")); home != "" {
+		return home
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		return home
+	}
+	return ""
+}
+
+func replaceHomePrefix(path, home string) string {
+	cleanHome := cleanHomePath(home)
+	if cleanHome == "" {
+		return path
+	}
+	if path == cleanHome {
+		return "~"
+	}
+	sep := string(filepath.Separator)
+	prefix := cleanHome
+	if !strings.HasSuffix(prefix, sep) {
+		prefix += sep
+	}
+	if strings.HasPrefix(path, prefix) {
+		return "~" + path[len(cleanHome):]
+	}
+	return path
+}
+
+func cleanHomePath(home string) string {
+	trimmed := strings.TrimSpace(home)
+	if trimmed == "" {
+		return ""
+	}
+	clean := filepath.Clean(trimmed)
+	if clean == "." {
+		return ""
+	}
+	return clean
 }
 
 func (m *wizardModel) Init() tea.Cmd {
