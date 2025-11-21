@@ -85,24 +85,7 @@ jobs:
             previous_ts="$(jq -r '.MostRecentPublishedAt // ""' .scratch/state/latest.json)"
           fi
 
-          comparison="$(uv run python - "$previous_ts" "$summary_ts" -c '
-          import sys
-          from datetime import datetime, timezone
-
-          def parse(value):
-              if not value or value == "null":
-                  return None
-              if value.endswith("Z"):
-                  value = f"{value[:-1]}+00:00"
-              return datetime.fromisoformat(value).astimezone(timezone.utc)
-
-          previous = parse(sys.argv[1] if len(sys.argv) > 1 else None)
-          current = parse(sys.argv[2] if len(sys.argv) > 2 else None)
-          if current is None:
-              print("error")
-              sys.exit(1)
-          print("true" if previous is None or current > previous else "false")
-          ')"
+          comparison="$(uv run python -c $'import sys\nfrom datetime import datetime, timezone\n\ndef parse(value):\n    if not value or value == \"null\":\n        return None\n    if value.endswith(\"Z\"):\n        value = f\"{value[:-1]}+00:00\"\n    return datetime.fromisoformat(value).astimezone(timezone.utc)\n\nprevious = parse(sys.argv[1] if len(sys.argv) > 1 else None)\ncurrent = parse(sys.argv[2] if len(sys.argv) > 2 else None)\nif current is None:\n    print(\"error\")\n    sys.exit(1)\nprint(\"true\" if previous is None or current > previous else \"false\")\n' "$previous_ts" "$summary_ts")"
 
           if [[ "$comparison" != "true" && "$comparison" != "false" ]]; then
             echo "failed to compare timestamps" >&2
