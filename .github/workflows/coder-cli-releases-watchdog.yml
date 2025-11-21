@@ -1,0 +1,193 @@
+name: Agentic Coder CLI Releases Watchdog
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/30 * * * *"
+
+concurrency:
+  group: coder-cli-watchdog
+  cancel-in-progress: true
+
+env:
+  AWS_REGION: us-west-1
+  TARGET_IMAGE: public.ecr.aws/s5i7k8t3/strongdm/coder
+
+jobs:
+  watchdog:
+    name: Refresh coder image when CLI releases update
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+      actions: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          uv --version
+
+      - name: Run coder CLI release aggregation
+        id: run_summary
+        run: |
+          set -euo pipefail
+          uv run python build/coder-cli-releases.py > summary.json
+
+      - name: Download previous release timestamp
+        id: download_state
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .scratch/state
+          artifact_id="$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts" \
+            --paginate \
+            -F per_page=100 \
+            --jq '.artifacts[] | select(.name == "coder-cli-latest-ts" and .expired == false) | .id' \
+            | head -n1 || true)"
+          if [[ -z "${artifact_id}" ]]; then
+            echo "no previous artifact found; continuing without prior timestamp"
+            exit 0
+          fi
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" -o state.zip >/dev/null
+          unzip -p state.zip latest.json > .scratch/state/latest.json
+          rm -f state.zip
+
+      - name: Evaluate latest release timestamp
+        id: evaluate
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .scratch/state
+          summary_ts="$(jq -r '.Summary.MostRecentPublishedAt // ""' summary.json)"
+          summary_pkg="$(jq -r '.Summary.Package // ""' summary.json)"
+          if [[ -z "$summary_ts" || "$summary_ts" == "null" ]]; then
+            echo "has_summary=false" >> "$GITHUB_OUTPUT"
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          previous_ts=""
+          if [[ -f .scratch/state/latest.json ]]; then
+            previous_ts="$(jq -r '.MostRecentPublishedAt // ""' .scratch/state/latest.json)"
+          fi
+
+          comparison="$(uv run python - "$previous_ts" "$summary_ts" <<'PY'
+import sys
+from datetime import datetime, timezone
+
+def parse(value: str | None):
+    if not value or value == "null":
+        return None
+    return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
+
+previous = parse(sys.argv[1] if len(sys.argv) > 1 else None)
+current = parse(sys.argv[2] if len(sys.argv) > 2 else None)
+if current is None:
+    print("error")
+    sys.exit(1)
+if previous is None or current > previous:
+    print("true")
+else:
+    print("false")
+PY
+)"
+
+          if [[ "$comparison" != "true" && "$comparison" != "false" ]]; then
+            echo "failed to compare timestamps" >&2
+            exit 1
+          fi
+
+          echo "has_summary=true" >> "$GITHUB_OUTPUT"
+          echo "timestamp=${summary_ts}" >> "$GITHUB_OUTPUT"
+          echo "package=${summary_pkg}" >> "$GITHUB_OUTPUT"
+          echo "should_build=${comparison}" >> "$GITHUB_OUTPUT"
+
+      - name: Install build prerequisites
+        if: steps.evaluate.outputs.should_build == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang llvm libbpf-dev pkg-config nodejs npm
+
+      - name: Install pnpm
+        if: steps.evaluate.outputs.should_build == 'true'
+        run: |
+          sudo npm install -g pnpm@10
+          pnpm --version
+
+      - name: Set up Go
+        if: steps.evaluate.outputs.should_build == 'true'
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.3'
+
+      - name: Set up QEMU
+        if: steps.evaluate.outputs.should_build == 'true'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        if: steps.evaluate.outputs.should_build == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Configure AWS credentials
+        if: steps.evaluate.outputs.should_build == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ECR_RELEASE_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR Public
+        if: steps.evaluate.outputs.should_build == 'true'
+        run: aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
+
+      - name: Build coder image
+        if: steps.evaluate.outputs.should_build == 'true'
+        run: |
+          make docker-coder
+
+      - name: Push coder image tags
+        if: steps.evaluate.outputs.should_build == 'true'
+        run: |
+          set -euo pipefail
+          if [[ ! -f .dev-docker-coder ]]; then
+            echo "missing .dev-docker-coder pointer" >&2
+            exit 1
+          fi
+          image_id="$(cat .dev-docker-coder)"
+          if [[ -z "$image_id" ]]; then
+            echo "coder image ID not recorded" >&2
+            exit 1
+          fi
+          mapfile -t tags < <(docker image inspect "$image_id" --format '{{range .RepoTags}}{{printf "%s\n" .}}{{end}}')
+          if [[ "${#tags[@]}" -eq 0 ]]; then
+            echo "no repo tags associated with ${image_id}" >&2
+            exit 1
+          fi
+          for tag in "${tags[@]}"; do
+            [[ -n "$tag" ]] || continue
+            echo "pushing ${tag}"
+            docker push "$tag"
+          done
+
+      - name: Persist latest release timestamp
+        if: steps.evaluate.outputs.has_summary == 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p .scratch/state
+          jq '{MostRecentPublishedAt: .Summary.MostRecentPublishedAt, Package: .Summary.Package}' summary.json > .scratch/state/latest.json
+
+      - name: Upload latest release timestamp state
+        if: steps.evaluate.outputs.has_summary == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coder-cli-latest-ts
+          path: .scratch/state/latest.json
+          if-no-files-found: error
