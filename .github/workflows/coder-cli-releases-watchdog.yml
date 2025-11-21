@@ -50,10 +50,12 @@ jobs:
           mkdir -p .scratch/state
           artifact_id="$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts" \
             --paginate \
-            -F per_page=100 \
+            --method GET \
+            -f per_page=100 \
             --jq '.artifacts[] | select(.name == "coder-cli-latest-ts" and .expired == false) | .id' \
+            | tr -d '\r' \
             | head -n1 || true)"
-          if [[ -z "${artifact_id}" ]]; then
+          if [[ -z "${artifact_id}" || ! "${artifact_id}" =~ ^[0-9]+$ ]]; then
             echo "no previous artifact found; continuing without prior timestamp"
             exit 0
           fi
