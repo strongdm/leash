@@ -57,7 +57,12 @@ jobs:
             echo "no previous artifact found; continuing without prior timestamp"
             exit 0
           fi
-          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" -o state.zip >/dev/null
+          download_url="repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip"
+          if ! gh api "$download_url" > state.zip; then
+            echo "failed to download artifact ${artifact_id}; continuing without prior timestamp"
+            rm -f state.zip
+            exit 0
+          fi
           unzip -p state.zip latest.json > .scratch/state/latest.json
           rm -f state.zip
 
