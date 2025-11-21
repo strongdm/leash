@@ -88,7 +88,7 @@ jobs:
           comparison="$(uv run python -c $'import sys\nfrom datetime import datetime, timezone\n\ndef parse(value):\n    if not value or value == \"null\":\n        return None\n    if value.endswith(\"Z\"):\n        value = f\"{value[:-1]}+00:00\"\n    return datetime.fromisoformat(value).astimezone(timezone.utc)\n\nprevious = parse(sys.argv[1] if len(sys.argv) > 1 else None)\ncurrent = parse(sys.argv[2] if len(sys.argv) > 2 else None)\nif current is None:\n    print(\"error\")\n    sys.exit(1)\nprint(\"true\" if previous is None or current > previous else \"false\")\n' "$previous_ts" "$summary_ts")"
 
           if [[ "$comparison" != "true" && "$comparison" != "false" ]]; then
-            echo "failed to compare timestamps" >&2
+            echo "fatal: failed to compare timestamps" >&2
             exit 1
           fi
 
@@ -134,34 +134,24 @@ jobs:
         if: steps.evaluate.outputs.should_build == 'true'
         run: aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
 
-      - name: Build coder image
+      - name: Build and push coder image
         if: steps.evaluate.outputs.should_build == 'true'
-        run: |
-          make docker-coder
-
-      - name: Push coder image tags
-        if: steps.evaluate.outputs.should_build == 'true'
+        env:
+          TARGET_IMAGE: ${{ env.TARGET_IMAGE }}
+          WATCHDOG_PACKAGE: ${{ steps.evaluate.outputs.package }}
+          WATCHDOG_TIMESTAMP: ${{ steps.evaluate.outputs.timestamp }}
         run: |
           set -euo pipefail
-          if [[ ! -f .dev-docker-coder ]]; then
-            echo "missing .dev-docker-coder pointer" >&2
+          if [[ -z "${WATCHDOG_TIMESTAMP:-}" || "${WATCHDOG_TIMESTAMP}" == "null" ]]; then
+            echo "fatal: missing release timestamp for watchdog build" >&2
             exit 1
           fi
-          image_id="$(cat .dev-docker-coder)"
-          if [[ -z "$image_id" ]]; then
-            echo "coder image ID not recorded" >&2
-            exit 1
+          version_pkg="${WATCHDOG_PACKAGE:-coder-cli}"
+          if [[ "${version_pkg}" == "null" || -z "${version_pkg}" ]]; then
+            version_pkg="coder-cli"
           fi
-          mapfile -t tags < <(docker image inspect "$image_id" --format '{{range .RepoTags}}{{printf "%s\n" .}}{{end}}')
-          if [[ "${#tags[@]}" -eq 0 ]]; then
-            echo "no repo tags associated with ${image_id}" >&2
-            exit 1
-          fi
-          for tag in "${tags[@]}"; do
-            [[ -n "$tag" ]] || continue
-            echo "pushing ${tag}"
-            docker push "$tag"
-          done
+          tag_input="${version_pkg}-${WATCHDOG_TIMESTAMP}"
+          ./build/publish-docker.sh --only-coder "$tag_input"
 
       - name: Persist latest release timestamp
         if: steps.evaluate.outputs.has_summary == 'true'
