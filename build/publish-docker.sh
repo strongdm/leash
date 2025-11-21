@@ -44,6 +44,45 @@ sanitize_tag() {
     printf '%s' "$tag"
 }
 
+usage() {
+    cat <<'EOF'
+Usage: publish-docker.sh [OPTIONS] [VERSION]
+
+Options:
+  --only-coder   Build and publish coder images only
+  --only-leash   Build and publish leash images only
+  -h, --help     Show this help message
+
+VERSION is the tag/identifier used for the built images. If omitted, the script
+falls back to VERSION env or build/versionator.py output.
+EOF
+}
+
+sanitize_branch() {
+    local branch="$1"
+    branch=$(printf '%s' "$branch" | tr '[:upper:]' '[:lower:]')
+    branch=$(printf '%s' "$branch" | tr -c 'a-z0-9._-' '-')
+    branch=$(printf '%s' "$branch" | sed -e 's/--*/-/g' -e 's/^-//' -e 's/-$//')
+    printf '%s' "$branch"
+}
+
+current_branch() {
+    local branch
+    if ! branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"; then
+        printf '%s' "main"
+        return
+    fi
+    if [[ "$branch" == "HEAD" || -z "$branch" ]]; then
+        printf '%s' "main"
+        return
+    fi
+    branch="$(sanitize_branch "$branch")"
+    if [[ -z "$branch" ]]; then
+        branch="main"
+    fi
+    printf '%s' "$branch"
+}
+
 docker_build_push() {
     local image="$1"
     local version="$2"
@@ -77,7 +116,49 @@ main() {
 
     require_cmd docker git python3
 
-    local version="${1:-${VERSION:-}}"
+    local only_coder=0
+    local only_leash=0
+    local -a positional=()
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --only-coder)
+                only_coder=1
+                ;;
+            --only-leash)
+                only_leash=1
+                ;;
+            -h|--help)
+                usage
+                return 0
+                ;;
+            --)
+                shift
+                while [[ $# -gt 0 ]]; do
+                    positional+=("$1")
+                    shift
+                done
+                break
+                ;;
+            -*)
+                die "unknown option: $1"
+                ;;
+            *)
+                positional+=("$1")
+                ;;
+        esac
+        shift || break
+    done
+
+    if (( only_coder && only_leash )); then
+        die "cannot set both --only-coder and --only-leash"
+    fi
+
+    if ((${#positional[@]} > 1)); then
+        die "too many positional arguments"
+    fi
+
+    local version="${positional[0]:-${VERSION:-}}"
     if [ -z "${version}" ]; then
         if ! version="$("${VERSION_SCRIPT}" tag)"; then
             die "failed to resolve version via ${VERSION_SCRIPT}"
@@ -130,7 +211,10 @@ main() {
     commit="$(git rev-parse --short=7 HEAD)"
     local build_date
     build_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    local channel="${RELEASE_CHANNEL:-release}"
+    local channel="${RELEASE_CHANNEL:-}"
+    if [ -z "${channel}" ]; then
+        channel="$(current_branch)"
+    fi
     local git_url
     git_url="$(git config --get remote.origin.url 2>/dev/null || echo unknown)"
 
@@ -138,99 +222,115 @@ main() {
         printf 'sanitized_version=%s\n' "${version}" >> "${GITHUB_OUTPUT}"
     fi
 
-    local leash_source="${LEASH_SOURCE_IMAGE:-}"
-    if [ -n "${leash_source}" ]; then
-        if ! promote_image "${leash_source}" "${leash_image}" "${version}"; then
-            log_error "promotion failed; rebuilding ${leash_image}:${version}"
-            leash_source=""
-        else
+    local build_leash=1
+    local build_coder=1
+    if (( only_coder )); then
+        build_leash=0
+    fi
+    if (( only_leash )); then
+        build_coder=0
+    fi
+    if (( !build_leash && !build_coder )); then
+        die "no targets selected for build"
+    fi
+
+    if (( build_leash )); then
+        local leash_source="${LEASH_SOURCE_IMAGE:-}"
+        if [ -n "${leash_source}" ]; then
+            if ! promote_image "${leash_source}" "${leash_image}" "${version}"; then
+                log_error "promotion failed; rebuilding ${leash_image}:${version}"
+                leash_source=""
+            else
+                leash_source="${leash_image}:${version}"
+            fi
+        fi
+        if [ -z "${leash_source}" ]; then
+            docker_build_push "${leash_image}" "${version}" \
+                "${leash_base_args[@]}" \
+                --file Dockerfile.leash \
+                --target final-prebuilt \
+                --build-arg UI_SOURCE=ui-prebuilt \
+                --build-arg COMMIT="${commit}" \
+                --build-arg BUILD_DATE="${build_date}" \
+                --build-arg VERSION="${version#v}" \
+                --build-arg CHANNEL="${channel}" \
+                --build-arg GIT_REMOTE_URL="${git_url}"
             leash_source="${leash_image}:${version}"
         fi
-    fi
-    if [ -z "${leash_source}" ]; then
-        docker_build_push "${leash_image}" "${version}" \
-            "${leash_base_args[@]}" \
-            --file Dockerfile.leash \
-            --target final-prebuilt \
-            --build-arg UI_SOURCE=ui-prebuilt \
-            --build-arg COMMIT="${commit}" \
-            --build-arg BUILD_DATE="${build_date}" \
-            --build-arg VERSION="${version#v}" \
-            --build-arg CHANNEL="${channel}" \
-            --build-arg GIT_REMOTE_URL="${git_url}"
-        leash_source="${leash_image}:${version}"
-    fi
 
-    local leash_target
-    for leash_target in "${leash_images[@]}"; do
-        if [ "${leash_target}" = "${leash_image}" ]; then
-            continue
-        fi
-
-        if [ -n "${leash_source}" ]; then
-            if promote_image "${leash_source}" "${leash_target}" "${version}"; then
-                leash_source="${leash_target}:${version}"
+        local leash_target
+        for leash_target in "${leash_images[@]}"; do
+            if [ "${leash_target}" = "${leash_image}" ]; then
                 continue
             fi
-            log_error "promotion failed; rebuilding ${leash_target}:${version}"
+
+            if [ -n "${leash_source}" ]; then
+                if promote_image "${leash_source}" "${leash_target}" "${version}"; then
+                    leash_source="${leash_target}:${version}"
+                    continue
+                fi
+                log_error "promotion failed; rebuilding ${leash_target}:${version}"
+            fi
+
+            docker_build_push "${leash_target}" "${version}" \
+                "${leash_base_args[@]}" \
+                --file Dockerfile.leash \
+                --target final-prebuilt \
+                --build-arg UI_SOURCE=ui-prebuilt \
+                --build-arg COMMIT="${commit}" \
+                --build-arg BUILD_DATE="${build_date}" \
+                --build-arg VERSION="${version#v}" \
+                --build-arg CHANNEL="${channel}" \
+                --build-arg GIT_REMOTE_URL="${git_url}"
+            leash_source="${leash_target}:${version}"
+        done
+    fi
+
+    if (( build_coder )); then
+        local target_source="${TARGET_SOURCE_IMAGE:-}"
+        if [ -n "${target_source}" ]; then
+            if ! promote_image "${target_source}" "${target_image}" "${version}"; then
+                log_error "promotion failed; rebuilding ${target_image}:${version}"
+                target_source=""
+            else
+                target_source="${target_image}:${version}"
+            fi
         fi
-
-        docker_build_push "${leash_target}" "${version}" \
-            "${leash_base_args[@]}" \
-            --file Dockerfile.leash \
-            --target final-prebuilt \
-            --build-arg UI_SOURCE=ui-prebuilt \
-            --build-arg COMMIT="${commit}" \
-            --build-arg BUILD_DATE="${build_date}" \
-            --build-arg VERSION="${version#v}" \
-            --build-arg CHANNEL="${channel}" \
-            --build-arg GIT_REMOTE_URL="${git_url}"
-        leash_source="${leash_target}:${version}"
-    done
-
-    local target_source="${TARGET_SOURCE_IMAGE:-}"
-    if [ -n "${target_source}" ]; then
-        if ! promote_image "${target_source}" "${target_image}" "${version}"; then
-            log_error "promotion failed; rebuilding ${target_image}:${version}"
-            target_source=""
-        else
+        if [ -z "${target_source}" ]; then
+            docker_build_push "${target_image}" "${version}" \
+                --file Dockerfile.coder \
+                --build-arg COMMIT="${commit}" \
+                --build-arg BUILD_DATE="${build_date}" \
+                --build-arg VERSION="${version#v}" \
+                --build-arg CHANNEL="${channel}" \
+                --build-arg GIT_REMOTE_URL="${git_url}"
             target_source="${target_image}:${version}"
         fi
-    fi
-    if [ -z "${target_source}" ]; then
-        docker_build_push "${target_image}" "${version}" \
-            --file Dockerfile.coder \
-            --build-arg COMMIT="${commit}" \
-            --build-arg BUILD_DATE="${build_date}" \
-            --build-arg VERSION="${version#v}" \
-            --build-arg CHANNEL="${channel}" \
-            --build-arg GIT_REMOTE_URL="${git_url}"
-        target_source="${target_image}:${version}"
-    fi
 
-    local target_entry
-    for target_entry in "${target_images[@]}"; do
-        if [ "${target_entry}" = "${target_image}" ]; then
-            continue
-        fi
-
-        if [ -n "${target_source}" ]; then
-            if promote_image "${target_source}" "${target_entry}" "${version}"; then
-                target_source="${target_entry}:${version}"
+        local target_entry
+        for target_entry in "${target_images[@]}"; do
+            if [ "${target_entry}" = "${target_image}" ]; then
                 continue
             fi
-            log_error "promotion failed; rebuilding ${target_entry}:${version}"
-        fi
 
-        docker_build_push "${target_entry}" "${version}" \
-            --file Dockerfile.coder \
-            --build-arg COMMIT="${commit}" \
-            --build-arg BUILD_DATE="${build_date}" \
-            --build-arg VERSION="${version#v}" \
-            --build-arg CHANNEL="${channel}" \
-            --build-arg GIT_REMOTE_URL="${git_url}"
-        target_source="${target_entry}:${version}"
-    done
+            if [ -n "${target_source}" ]; then
+                if promote_image "${target_source}" "${target_entry}" "${version}"; then
+                    target_source="${target_entry}:${version}"
+                    continue
+                fi
+                log_error "promotion failed; rebuilding ${target_entry}:${version}"
+            fi
+
+            docker_build_push "${target_entry}" "${version}" \
+                --file Dockerfile.coder \
+                --build-arg COMMIT="${commit}" \
+                --build-arg BUILD_DATE="${build_date}" \
+                --build-arg VERSION="${version#v}" \
+                --build-arg CHANNEL="${channel}" \
+                --build-arg GIT_REMOTE_URL="${git_url}"
+            target_source="${target_entry}:${version}"
+        done
+    fi
 
     log_info "Docker tags created for original input '${original_version}' as '${version}'"
 }

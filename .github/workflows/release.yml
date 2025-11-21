@@ -81,6 +81,7 @@ jobs:
         env:
           LEASH_IMAGE: ${{ env.STAGING_LEASH_IMAGE }}
           TARGET_IMAGE: ${{ env.STAGING_TARGET_IMAGE }}
+          RELEASE_CHANNEL: release
         run: ./build/publish-docker.sh "verify-${{ github.run_id }}"
 
   release:
@@ -156,6 +157,7 @@ jobs:
           TARGET_SOURCE_IMAGE: ${{ env.STAGING_TARGET_IMAGE }}:${{ needs.verify.outputs.docker_version }}
           LEASH_IMAGE: public.ecr.aws/s5i7k8t3/strongdm/leash
           TARGET_IMAGE: public.ecr.aws/s5i7k8t3/strongdm/coder
+          RELEASE_CHANNEL: release
           # ECR_LEASH_IMAGE: public.ecr.aws/s5i7k8t3/strongdm/leash
           # ECR_TARGET_IMAGE: public.ecr.aws/s5i7k8t3/strongdm/coder
         run: ./build/publish-docker.sh "${GORELEASER_CURRENT_TAG}"
