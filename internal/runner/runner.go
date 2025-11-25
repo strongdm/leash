@@ -2243,7 +2243,7 @@ func (r *runner) containerSummary(ctx context.Context, name string) string {
 	format := "{{.State.Status}} {{.State.ExitCode}}"
 	out, err := commandOutput(ctx, "docker", "inspect", "-f", format, name)
 	if err != nil {
-		if strings.Contains(err.Error(), "No such object") {
+		if isNoSuchObjectError(err) {
 			return "missing"
 		}
 		return "error"
@@ -2536,7 +2536,7 @@ func (r *runner) showStatus(ctx context.Context) error {
 func (r *runner) containerRunning(ctx context.Context, name string) (bool, error) {
 	out, err := commandOutput(ctx, "docker", "inspect", "-f", "{{.State.Running}}", name)
 	if err != nil {
-		if strings.Contains(err.Error(), "No such object") {
+		if isNoSuchObjectError(err) {
 			return false, nil
 		}
 		return false, err
@@ -2546,7 +2546,7 @@ func (r *runner) containerRunning(ctx context.Context, name string) (bool, error
 
 func (r *runner) containerExists(ctx context.Context, name string) (bool, error) {
 	if _, err := commandOutput(ctx, "docker", "inspect", "-f", "{{.Name}}", name); err != nil {
-		if strings.Contains(err.Error(), "No such object") {
+		if isNoSuchObjectError(err) {
 			return false, nil
 		}
 		return false, err
@@ -2653,9 +2653,25 @@ func dockerExecWithInputImpl(ctx context.Context, container string, shellCommand
 	return cmd.Run()
 }
 
+func isNoSuchObjectError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "no such object") || strings.Contains(msg, "no such container")
+}
+
+func isNoSuchImageError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "no such image")
+}
+
 func (r *runner) ensureLocalImage(ctx context.Context, image string) error {
 	if _, err := commandOutput(ctx, "docker", "image", "inspect", image); err != nil {
-		if strings.Contains(err.Error(), "No such object") || strings.Contains(err.Error(), "No such image") {
+		if isNoSuchObjectError(err) || isNoSuchImageError(err) {
 			fmt.Printf("Pulling container image %s...\n", image)
 			if pullErr := runCommand(ctx, "docker", "pull", image); pullErr != nil {
 				return fmt.Errorf("pull image %s: %w", image, pullErr)
