@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
-    "build": "next build --turbopack",
+    "dev": "next dev",
+    "build": "next build",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run"
@@ -29,9 +29,9 @@
     "framer-motion": "^12.23.12",
     "lucide-react": "^0.542.0",
     "monaco-editor": "^0.52.0",
-    "next": "15.5.2",
-    "react": "19.1.0",
-    "react-dom": "19.1.0",
+    "next": "^16",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
     "reactflow": "^11.11.4",
     "tailwind-merge": "^3.3.1"
   },
@@ -45,7 +45,7 @@
     "@types/react-dom": "^19",
     "@vitejs/plugin-react": "^4.3.3",
     "eslint": "^9",
-    "eslint-config-next": "15.5.2",
+    "eslint-config-next": "^16",
     "jsdom": "^25.0.1",
     "tailwindcss": "^4",
     "tw-animate-css": "^1.3.8",
