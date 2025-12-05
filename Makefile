@@ -40,9 +40,15 @@ UI_CACHE_DIR ?= $(HOME)/.cache/leash/ui
 default: build-ui docker-leash build ## Default Makefile task: builds UI, Docker images, and binaries
 
 .PHONY: help
-help: ## List common make targets
-	@awk 'BEGIN {FS = ":.*##"; printf "\nAvailable targets:\n\n"} /^[a-zA-Z0-9][^:]*:.*##/ {printf "  %-24s %s\n", $$1, $$2}' $(MAKEFILE_LIST); \
-	printf '\n'
+help: ## Dynamically list available make targets
+	@printf "\nCommon targets:\n\n"
+	@{ \
+		awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z0-9][^:]*:.*##/ {sub(/^[[:space:]]+/, "", $$2); printf "  make %-16s - %s\n", $$1, $$2}' $(MAKEFILE_LIST); \
+		printf "  make %-16s - %s\n" "jsm-ingress" "Run JSM ingress (stub)"; \
+		printf "  make %-16s - %s\n" "jsm-sink" "Run JSM sink (stub)"; \
+		printf "  make %-16s - %s\n" "jsm-demo" "Demo both JSM stubs"; \
+	} | sort
+	@printf '\n'
 
 .PHONY: fmt
 fmt: ## Format Go sources with goimports
