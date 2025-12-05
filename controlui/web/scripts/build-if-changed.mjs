@@ -113,6 +113,14 @@ console.log('[ui] Changes detected; running build...')
 run('pnpm', ['lint'], { cwd: projectRoot })
 run('pnpm', ['build'], { cwd: projectRoot })
 
+// Next.js 16 creates _not-found/ with only .txt metadata files that Go's embed
+// directive cannot embed. Add a placeholder file so the directory is embeddable.
+// Note: Go embed ignores files starting with "." so we use "keep" not ".keep".
+const notFoundDir = join(projectRoot, 'out', '_not-found')
+if (existsSync(notFoundDir)) {
+  writeFileSync(join(notFoundDir, 'keep'), '')
+}
+
 try {
   mkdirSync(outDir, { recursive: true })
 } catch {}
