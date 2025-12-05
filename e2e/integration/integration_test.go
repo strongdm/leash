@@ -217,7 +217,7 @@ func runBaselinePolicyScenarios(t *testing.T, env *variantEnv) {
 	t.Run("baseline/file-open-allow", func(t *testing.T) {
 		env.runCommand(t, commandExpectation{
 			name:               "baseline/file-open-allow",
-			command:            []string{"cat", "/usr/lib/os-release"},
+			command:            []string{"cat", "/etc/os-release"},
 			allowedExitCodes:   []int{0},
 			retryUntilDeadline: true,
 			ruleRef:            "allow file.open /",
@@ -226,13 +226,13 @@ func runBaselinePolicyScenarios(t *testing.T, env *variantEnv) {
 
 	t.Run("baseline/file-open-deny", func(t *testing.T) {
 		env.requireEnforcement(t)
-		appendPolicyRule(t, env.policyPath, "deny file.open /usr/lib/os-release")
+		appendPolicyRule(t, env.policyPath, "deny file.open /etc/os-release")
 		env.runCommand(t, commandExpectation{
 			name:               "baseline/file-open-deny",
-			command:            []string{"cat", "/usr/lib/os-release"},
+			command:            []string{"cat", "/etc/os-release"},
 			allowedExitCodes:   []int{1},
 			retryUntilDeadline: true,
-			ruleRef:            "deny file.open /usr/lib/os-release",
+			ruleRef:            "deny file.open /etc/os-release",
 		})
 	})
 
