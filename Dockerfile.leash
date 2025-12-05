@@ -9,6 +9,8 @@ ARG BASE_RUNTIME_IMAGE=leash/runtime-base:latest
 FROM golang:${GO_VERSION}-bookworm AS build-base
 ARG DEBIAN_FRONTEND
 ARG TARGETARCH
+# Install Node.js 20 repo first (required by Next.js 16)
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
@@ -22,8 +24,7 @@ RUN set -eux; \
         libbpf-dev \
         libelf-dev \
         build-essential \
-        nodejs \
-        npm; \
+        nodejs; \
     case "${TARGETARCH:-amd64}" in \
         amd64) apt-get install -y --no-install-recommends linux-headers-amd64 ;; \
         arm64) apt-get install -y --no-install-recommends linux-headers-arm64 ;; \
