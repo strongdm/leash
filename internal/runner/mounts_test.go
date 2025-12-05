@@ -16,6 +16,9 @@ import (
 
 func TestLaunchCommandsUseSplitMounts(t *testing.T) {
 	t.Parallel()
+	// Serialize with tests in mount_state_test.go that also modify runCommand/commandOutput globals.
+	mountStateTestMu.Lock()
+	t.Cleanup(mountStateTestMu.Unlock)
 
 	shareDir := t.TempDir()
 	privateDir := filepath.Join(shareDir, "private")
