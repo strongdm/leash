@@ -1,6 +1,7 @@
 package configstore
 
 import (
+	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -20,6 +21,9 @@ func TestHostDirsAllCommandsCovered(t *testing.T) {
 			t.Fatalf("hostDirForCommand(%q) returned error: %v", cmd, err)
 		}
 		want := filepath.Join(home, "."+cmd)
+		if cmd == "opencode" {
+			want = filepath.Join(home, ".config", "opencode")
+		}
 		if dir != want {
 			t.Fatalf("hostDirForCommand(%q) = %q, want %q", cmd, dir, want)
 		}
@@ -83,6 +87,58 @@ func TestClaudeHostDirTildeOverride(t *testing.T) {
 	want := filepath.Join(home, "my-claude")
 	if dir != want {
 		t.Fatalf("HostDirForCommand = %q, want %q", dir, want)
+	}
+}
+
+// This test rewires HOME/XDG paths; keep serial to avoid leaking environment.
+func TestOpencodeHostDirPrefersExistingStateDir(t *testing.T) {
+	testSetEnv(t, "LEASH_HOME", "")
+	testSetEnv(t, "CLAUDE_CONFIG_DIR", "")
+	testSetEnv(t, "XDG_CONFIG_HOME", "")
+	testSetEnv(t, "XDG_DATA_HOME", "")
+	testSetEnv(t, "XDG_STATE_HOME", "")
+
+	home := t.TempDir()
+	setHome(t, home)
+
+	stateDir := filepath.Join(home, ".local", "state", "opencode")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("mkdir stateDir: %v", err)
+	}
+
+	dir, err := HostDirForCommand("opencode")
+	if err != nil {
+		t.Fatalf("HostDirForCommand returned error: %v", err)
+	}
+	if dir != stateDir {
+		t.Fatalf("HostDirForCommand = %q, want %q", dir, stateDir)
+	}
+}
+
+// This test adjusts XDG_CONFIG_HOME; keep serial to prevent environment leaks.
+func TestOpencodeHostDirUsesXDGConfigHome(t *testing.T) {
+	testSetEnv(t, "LEASH_HOME", "")
+	testSetEnv(t, "CLAUDE_CONFIG_DIR", "")
+	testSetEnv(t, "XDG_STATE_HOME", "")
+	testSetEnv(t, "XDG_DATA_HOME", "")
+
+	home := t.TempDir()
+	setHome(t, home)
+
+	configBase := filepath.Join(home, "xdg-config")
+	testSetEnv(t, "XDG_CONFIG_HOME", configBase)
+
+	configDir := filepath.Join(configBase, "opencode")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("mkdir configDir: %v", err)
+	}
+
+	dir, err := HostDirForCommand("opencode")
+	if err != nil {
+		t.Fatalf("HostDirForCommand returned error: %v", err)
+	}
+	if dir != configDir {
+		t.Fatalf("HostDirForCommand = %q, want %q", dir, configDir)
 	}
 }
 

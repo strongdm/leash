@@ -62,7 +62,16 @@ Leash automatically manages mounts for the following subcommands:
 - `qwen`
 - `opencode`
 
-For each subcommand, Leash maps the host directory `~/.<cmd>` to the container path `/root/.<cmd>` using a read-write (`:rw`) bind mount.
+For each subcommand, Leash maps the host directory `~/.<cmd>` to `/root/.<cmd>` (`:rw`). Opencode also mounts the following XDG locations:
+
+| Host path | Container path | Mode | Notes |
+| --- | --- | --- | --- |
+| `~/.config/opencode` | `/root/.config/opencode` | `rw` | Config directory |
+| `~/.local/state/opencode` | `/root/.local/state/opencode` | `rw` | State directory |
+| `~/.local/share/opencode/auth.json` | `/root/.local/share/opencode/auth.json` | `rw` | Auth token file |
+| `~/.local/share/opencode/log` | `/root/.local/share/opencode/log` | `rw` | Logs directory |
+| `~/.local/share/opencode/snapshot` | `/root/.local/share/opencode/snapshot` | `rw` | Snapshots directory |
+| `~/.local/share/opencode/storage` | `/root/.local/share/opencode/storage` | `rw` | Storage directory (excludes `bin` to avoid host/guest arch clashes) |
 
 ## Prompt Workflow
 

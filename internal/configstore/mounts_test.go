@@ -122,6 +122,109 @@ func TestComputeExtraMountsForClaudeIncludesConfigFile(t *testing.T) {
 	}
 }
 
+// This test rewires HOME/XDG vars; keep serial to avoid leaking environment.
+func TestComputeExtraMountsForOpencodePrefersXDGPaths(t *testing.T) {
+	home := t.TempDir()
+	testSetEnv(t, "HOME", home)
+	testSetEnv(t, "XDG_CONFIG_HOME", "")
+	testSetEnv(t, "XDG_STATE_HOME", "")
+	testSetEnv(t, "XDG_DATA_HOME", "")
+
+	configDir := filepath.Join(home, ".config", "opencode")
+	stateDir := filepath.Join(home, ".local", "state", "opencode")
+	dataDir := filepath.Join(home, ".local", "share", "opencode")
+
+	for _, dir := range []string{configDir, stateDir, filepath.Join(dataDir, "log"), filepath.Join(dataDir, "snapshot"), filepath.Join(dataDir, "storage")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+
+	authPath := filepath.Join(dataDir, "auth.json")
+	if err := os.WriteFile(authPath, []byte(`{"token":"abc"}`), 0o600); err != nil {
+		t.Fatalf("write auth file: %v", err)
+	}
+
+	outcome := PromptOutcome{
+		Mount:     true,
+		Scope:     ScopeGlobal,
+		Persisted: true,
+		HostDir:   configDir,
+	}
+
+	mounts, err := ComputeExtraMountsFor("opencode", outcome, nil)
+	if err != nil {
+		t.Fatalf("ComputeExtraMountsFor returned error: %v", err)
+	}
+
+	if len(mounts) != 6 {
+		t.Fatalf("expected 6 mounts, got %d", len(mounts))
+	}
+
+	want := map[string]struct {
+		host string
+		kind MountKind
+	}{
+		"/root/.config/opencode":                {host: configDir, kind: MountKindDirectory},
+		"/root/.local/state/opencode":           {host: stateDir, kind: MountKindDirectory},
+		"/root/.local/share/opencode/auth.json": {host: authPath, kind: MountKindFile},
+		"/root/.local/share/opencode/log":       {host: filepath.Join(dataDir, "log"), kind: MountKindDirectory},
+		"/root/.local/share/opencode/snapshot":  {host: filepath.Join(dataDir, "snapshot"), kind: MountKindDirectory},
+		"/root/.local/share/opencode/storage":   {host: filepath.Join(dataDir, "storage"), kind: MountKindDirectory},
+	}
+
+	for _, mount := range mounts {
+		entry, ok := want[mount.Container]
+		if !ok {
+			t.Fatalf("unexpected mount target %s", mount.Container)
+		}
+		if mount.Host != entry.host {
+			t.Fatalf("mount %s host = %s, want %s", mount.Container, mount.Host, entry.host)
+		}
+		if mount.Kind != entry.kind {
+			t.Fatalf("mount %s kind = %d, want %d", mount.Container, mount.Kind, entry.kind)
+		}
+	}
+}
+
+func TestComputeExtraMountsForOpencodeIncludesLegacyDir(t *testing.T) {
+	home := t.TempDir()
+	testSetEnv(t, "HOME", home)
+	testSetEnv(t, "XDG_CONFIG_HOME", "")
+	testSetEnv(t, "XDG_STATE_HOME", "")
+	testSetEnv(t, "XDG_DATA_HOME", "")
+
+	legacyDir := filepath.Join(home, ".opencode")
+	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
+		t.Fatalf("mkdir legacyDir: %v", err)
+	}
+
+	outcome := PromptOutcome{
+		Mount:     true,
+		Scope:     ScopeGlobal,
+		Persisted: true,
+		HostDir:   legacyDir,
+	}
+
+	mounts, err := ComputeExtraMountsFor("opencode", outcome, nil)
+	if err != nil {
+		t.Fatalf("ComputeExtraMountsFor returned error: %v", err)
+	}
+	if len(mounts) != 1 {
+		t.Fatalf("expected 1 mount, got %d", len(mounts))
+	}
+	m := mounts[0]
+	if m.Host != legacyDir {
+		t.Fatalf("unexpected host: %s", m.Host)
+	}
+	if m.Container != "/root/.opencode" {
+		t.Fatalf("unexpected container: %s", m.Container)
+	}
+	if m.Kind != MountKindDirectory {
+		t.Fatalf("expected directory mount, got %d", m.Kind)
+	}
+}
+
 // This test sets HOME so the tilde resolver sees a predictable directory; keep
 // it serial to avoid leaking temporary paths to parallel tests.
 func TestResolveCustomVolumesGlobal(t *testing.T) {
