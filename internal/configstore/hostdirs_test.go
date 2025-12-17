@@ -12,6 +12,9 @@ import (
 func TestHostDirsAllCommandsCovered(t *testing.T) {
 	testSetEnv(t, "LEASH_HOME", "")
 	testSetEnv(t, "CLAUDE_CONFIG_DIR", "")
+	testSetEnv(t, "XDG_CONFIG_HOME", "")
+	testSetEnv(t, "XDG_DATA_HOME", "")
+	testSetEnv(t, "XDG_STATE_HOME", "")
 	home := t.TempDir()
 	setHome(t, home)
 
