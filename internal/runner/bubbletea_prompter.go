@@ -60,6 +60,9 @@ func newBubbleTeaPrompter(in io.Reader, out io.Writer, project string) *bubbleTe
 }
 
 func (p *bubbleTeaPrompter) ConfirmMount(ctx context.Context, cmd, hostDir string) (bool, error) {
+	restoreTerm := normalizeTERMForBubbleTea()
+	defer restoreTerm()
+
 	model := newWizardModel(cmd, hostDir, p.project, p.version, p.theme, p.logo)
 	prog := tea.NewProgram(model, tea.WithInput(p.in), tea.WithOutput(p.out), tea.WithContext(ctx))
 
