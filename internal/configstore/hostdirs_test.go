@@ -30,6 +30,35 @@ func TestHostDirsAllCommandsCovered(t *testing.T) {
 	}
 }
 
+// This test primes os.UserHomeDir before updating HOME to ensure our resolution
+// logic ignores the cached value.
+func TestHostDirsIgnoreCachedHome(t *testing.T) {
+	testSetEnv(t, "LEASH_HOME", "")
+	testSetEnv(t, "CLAUDE_CONFIG_DIR", "")
+	testSetEnv(t, "XDG_CONFIG_HOME", "")
+	testSetEnv(t, "XDG_DATA_HOME", "")
+	testSetEnv(t, "XDG_STATE_HOME", "")
+
+	originalHome := t.TempDir()
+	setHome(t, originalHome)
+
+	if _, err := os.UserHomeDir(); err != nil {
+		t.Fatalf("prime os.UserHomeDir cache: %v", err)
+	}
+
+	newHome := t.TempDir()
+	setHome(t, newHome)
+
+	dir, err := HostDirForCommand("opencode")
+	if err != nil {
+		t.Fatalf("HostDirForCommand returned error: %v", err)
+	}
+	want := filepath.Join(newHome, ".config", "opencode")
+	if dir != want {
+		t.Fatalf("HostDirForCommand = %q, want %q", dir, want)
+	}
+}
+
 // This test modifies HOME while validating error handling, so it cannot run in
 // parallel with other environment-sensitive tests.
 func TestUnsupportedCommandPanics(t *testing.T) {

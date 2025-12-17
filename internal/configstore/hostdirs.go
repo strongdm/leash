@@ -24,12 +24,9 @@ func HostDirForCommand(cmd string) (string, error) {
 	if _, ok := supportedCommands[cmd]; !ok {
 		return "", fmt.Errorf("unsupported command %q", cmd)
 	}
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		if err == nil {
-			err = fmt.Errorf("home directory not found")
-		}
-		return "", fmt.Errorf("resolve home dir: %w", err)
+	home, err := resolveHomeDir()
+	if err != nil {
+		return "", err
 	}
 
 	if cmd == "claude" {

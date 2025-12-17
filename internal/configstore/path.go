@@ -30,12 +30,9 @@ func GetConfigPath() (string, string, error) {
 		return dir, filepath.Join(dir, configFileName), nil
 	}
 
-	home, err := os.UserHomeDir()
-	if err != nil || strings.TrimSpace(home) == "" {
-		if err == nil {
-			err = fmt.Errorf("home directory not found")
-		}
-		return "", "", fmt.Errorf("resolve home dir: %w", err)
+	home, err := resolveHomeDir()
+	if err != nil {
+		return "", "", err
 	}
 	base = filepath.Join(home, ".config")
 	dir := buildConfigDir(base)
