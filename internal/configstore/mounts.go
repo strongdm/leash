@@ -106,12 +106,9 @@ func ComputeExtraMountsFor(cmd string, outcome PromptOutcome, statFn func(string
 }
 
 func computeOpencodeMounts(outcome PromptOutcome, statFn func(string) (os.FileInfo, error)) ([]Mount, error) {
-	home, err := os.UserHomeDir()
-	if err != nil || strings.TrimSpace(home) == "" {
-		if err == nil {
-			err = fmt.Errorf("home directory not found")
-		}
-		return nil, fmt.Errorf("resolve home dir: %w", err)
+	home, err := resolveHomeDir()
+	if err != nil {
+		return nil, err
 	}
 
 	paths := opencodePaths(home)

@@ -164,7 +164,7 @@ func expandLeadingTilde(path string) (string, error) {
 	}
 
 	if len(path) == 1 || isPathSeparator(path[1]) {
-		home, err := os.UserHomeDir()
+		home, err := resolveHomeDir()
 		if err != nil {
 			return "", fmt.Errorf("resolve home directory: %w", err)
 		}
