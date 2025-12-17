@@ -49,6 +49,11 @@ func ComputeExtraMountsFor(cmd string, outcome PromptOutcome, statFn func(string
 	if check == nil {
 		check = os.Stat
 	}
+
+	if cmd == "opencode" {
+		return computeOpencodeMounts(outcome, check)
+	}
+
 	info, err := check(outcome.HostDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -95,6 +100,86 @@ func ComputeExtraMountsFor(cmd string, outcome PromptOutcome, statFn func(string
 		case err != nil:
 			return nil, fmt.Errorf("check claude config file: %w", err)
 		}
+	}
+
+	return mounts, nil
+}
+
+func computeOpencodeMounts(outcome PromptOutcome, statFn func(string) (os.FileInfo, error)) ([]Mount, error) {
+	home, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		if err == nil {
+			err = fmt.Errorf("home directory not found")
+		}
+		return nil, fmt.Errorf("resolve home dir: %w", err)
+	}
+
+	paths := opencodePaths(home)
+	dataRoot := paths.dataDir
+
+	type candidate struct {
+		name      string
+		host      string
+		container string
+		kind      MountKind
+	}
+
+	candidates := []candidate{
+		{name: "opencode-config", host: paths.configDir, container: "/root/.config/opencode", kind: MountKindDirectory},
+		{name: "opencode-state", host: paths.stateDir, container: "/root/.local/state/opencode", kind: MountKindDirectory},
+		{name: "opencode-auth", host: filepath.Join(dataRoot, "auth.json"), container: "/root/.local/share/opencode/auth.json", kind: MountKindFile},
+		{name: "opencode-log", host: filepath.Join(dataRoot, "log"), container: "/root/.local/share/opencode/log", kind: MountKindDirectory},
+		{name: "opencode-snapshot", host: filepath.Join(dataRoot, "snapshot"), container: "/root/.local/share/opencode/snapshot", kind: MountKindDirectory},
+		{name: "opencode-storage", host: filepath.Join(dataRoot, "storage"), container: "/root/.local/share/opencode/storage", kind: MountKindDirectory},
+		{name: "opencode-legacy", host: paths.legacyDir, container: "/root/.opencode", kind: MountKindDirectory},
+	}
+
+	check := statFn
+	if check == nil {
+		check = os.Stat
+	}
+
+	seen := make(map[string]struct{})
+	mounts := make([]Mount, 0, len(candidates))
+
+	for _, c := range candidates {
+		trimmedHost := strings.TrimSpace(c.host)
+		if trimmedHost == "" {
+			continue
+		}
+		info, err := check(trimmedHost)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, fmt.Errorf("check opencode path %s: %w", trimmedHost, err)
+		}
+		switch c.kind {
+		case MountKindDirectory:
+			if !info.IsDir() {
+				return nil, fmt.Errorf("expected directory for %s", trimmedHost)
+			}
+		case MountKindFile:
+			if info.IsDir() {
+				return nil, fmt.Errorf("expected file for %s", trimmedHost)
+			}
+		}
+
+		key := trimmedHost + "->" + c.container
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+
+		mounts = append(mounts, Mount{
+			Name:      c.name,
+			Host:      filepath.Clean(trimmedHost),
+			Container: c.container,
+			Mode:      "rw",
+			Scope:     outcome.Scope,
+			Persisted: outcome.Persisted,
+			Kind:      c.kind,
+		})
 	}
 
 	return mounts, nil
