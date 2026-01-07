@@ -30,15 +30,32 @@ apk add --no-cache ca-certificates
 ## 1. Update your Dockerfile
 
 ```Dockerfile
-FROM ghcr.io/strongdm/coder:latest AS leash
+FROM public.ecr.aws/s5i7k8t3/strongdm/leash:latest AS leash
 
 # ... your existing build stages ...
 
-COPY --from=leash /bin/leash-entry /bin/leash-entry
+# Install any additional packages you need (example)
+# RUN apt-get update && \
+#     apt-get install -y git ca-certificates && \
+#     apt-get clean && \
+#     rm -rf /var/lib/apt/lists/*
+
+# Copy leash-entry from the leash image
+COPY --from=leash /usr/local/bin/leash-entry /bin/leash-entry
+
+# Set leash-entry as the entrypoint
 ENTRYPOINT ["/bin/leash-entry"]
+
+# Preserve the default CMD from your base image
+CMD ["node", "--version"]
 ```
 
 `leash-entry` wraps your original entrypoint and connects the target container to the Leash manager.
+
+**Important notes:**
+- The `leash-entry` binary is located at `/usr/local/bin/leash-entry` in the leash image
+- You must preserve the `CMD` directive from your base image, otherwise the entrypoint won't execute commands correctly
+- Use the ECR registry URLs (`public.ecr.aws/s5i7k8t3/strongdm/`) rather than GitHub Container Registry
 
 ## 2. Build your image
 
@@ -51,7 +68,7 @@ Use whatever tag matches your release process. You can build the Leash manager i
 ## 3. Launch with Leash
 
 ```sh
-leash --image your-target-image --leash-image ghcr.io/strongdm/leash:v0.0.1
+leash --image your-target-image
 ```
 
 Point the CLI at your new image via flags, `LEASH_TARGET_IMAGE`, `TARGET_IMAGE`, or `config.toml` as described in the README and [CONFIG.md](CONFIG.md).
