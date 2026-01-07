@@ -290,6 +290,32 @@ else
 GO_TEST_FLAGS := -v
 endif
 
+DEV_COMMAND ?= codex shell
+
+DEV_VERBOSE_FLAG :=
+ifneq ($(strip $(V)),)
+ifneq (,$(shell printf '%s' "$(V)" | grep -Eq '^(1|[Tt]|[Tt][rR][uU][eE])$$' && echo yes))
+DEV_VERBOSE_FLAG := --verbose
+endif
+endif
+ifneq ($(strip $(VERBOSE)),)
+ifneq (,$(shell printf '%s' "$(VERBOSE)" | grep -Eq '^(1|[Tt]|[Tt][rR][uU][eE])$$' && echo yes))
+DEV_VERBOSE_FLAG := --verbose
+endif
+endif
+
+DEV_TRACE_ENV :=
+ifneq ($(strip $(T)),)
+ifneq (,$(shell printf '%s' "$(T)" | grep -Eq '^(1|[Tt]|[Tt][rR][uU][eE])$$' && echo yes))
+DEV_TRACE_ENV := TRACE=1
+endif
+endif
+ifneq ($(strip $(TRACE)),)
+ifneq (,$(shell printf '%s' "$(TRACE)" | grep -Eq '^(1|[Tt]|[Tt][rR][uU][eE])$$' && echo yes))
+DEV_TRACE_ENV := TRACE=1
+endif
+endif
+
 .PHONY: test-unit test-go
 test-unit test-go: precommit ## Run Go unit tests (after UI build + LSM-generate steps)
 	@echo 'running go tests...'
@@ -348,3 +374,12 @@ clean-docker:
 
 .PHONY: clean
 clean: clean-go clean-ui clean-docker ## Remove build artifacts
+
+.PHONY: dev
+dev: build ## Build leash and run a default dev command (V/VERBOSE=1|true adds --verbose; T/TRACE=1|true sets TRACE=1)
+	@set -euo pipefail; \
+	  TRACE_ENV="$(DEV_TRACE_ENV)"; \
+	  VERBOSE_FLAG="$(DEV_VERBOSE_FLAG)"; \
+	  CMD="$(DEV_COMMAND)"; \
+	  echo "$$TRACE_ENV ./bin/leash $$VERBOSE_FLAG -- $$CMD"; \
+	  $$TRACE_ENV ./bin/leash $$VERBOSE_FLAG -- $$CMD

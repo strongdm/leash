@@ -23,6 +23,7 @@ import (
 	"github.com/strongdm/leash/internal/configstore"
 	"github.com/strongdm/leash/internal/entrypoint"
 	"github.com/strongdm/leash/internal/leashd/listen"
+	"github.com/strongdm/leash/internal/openflag"
 	"github.com/strongdm/leash/internal/telemetry/statsig"
 )
 
@@ -187,6 +188,8 @@ func execute(cmdName string, args []string) error {
 		return err
 	}
 
+	applyOpenEnv(&opts)
+
 	if len(opts.command) == 0 {
 		return fmt.Errorf("a command is required; provide one after '--'")
 	}
@@ -310,7 +313,7 @@ Flags:
   -P, --publish-all               Publish all EXPOSEd ports (host same as container when free, auto-bump on conflicts).
   --image <name[:tag]>            Override the target container image (defaults to %s).
   --leash-image <name[:tag]>      Override the leash manager image (defaults to %s).
-  -V, --verbose                   Enable verbose logging.
+  -V, --verbose                   Enable verbose logging (also set when -v is provided without a mount spec).
 
 Environment variables:
   LEASH_TARGET_IMAGE           Default target image (overridden by --image).
@@ -511,6 +514,15 @@ func parseArgs(args []string) (options, error) {
 
 func finalizeOptions(opts options) (options, error) {
 	return opts, nil
+}
+
+func applyOpenEnv(opts *options) {
+	if opts == nil || opts.openUI {
+		return
+	}
+	if openflag.Enabled() {
+		opts.openUI = true
+	}
 }
 
 func appendEnvSpec(opts *options, spec string) error {
