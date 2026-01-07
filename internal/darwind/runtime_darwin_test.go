@@ -90,6 +90,30 @@ func TestIsExecHelpRequest(t *testing.T) {
 	}
 }
 
+func TestParseConfigOpenDefaultsFromEnv(t *testing.T) {
+	t.Setenv("OPEN", "true")
+
+	cfg, err := parseConfig(nil)
+	if err != nil {
+		t.Fatalf("parseConfig returned error: %v", err)
+	}
+	if !cfg.OpenBrowser {
+		t.Fatalf("expected OpenBrowser to be true when OPEN is truthy")
+	}
+}
+
+func TestParseConfigOpenEnvOverriddenByFlag(t *testing.T) {
+	t.Setenv("OPEN", "true")
+
+	cfg, err := parseConfig([]string{"--open=false"})
+	if err != nil {
+		t.Fatalf("parseConfig returned error: %v", err)
+	}
+	if cfg.OpenBrowser {
+		t.Fatalf("expected OpenBrowser to be false when explicitly disabled via flag")
+	}
+}
+
 func TestPreFlightSetsDefaultPrivateDir(t *testing.T) {
 	// t.Parallel avoided: this test mutates process-wide environment variables and
 	// log sinks; running in parallel would race with other tests that rely on the

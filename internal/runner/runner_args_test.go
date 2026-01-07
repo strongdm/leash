@@ -150,6 +150,36 @@ func TestParseArgsOpenFlag(t *testing.T) {
 	}
 }
 
+func TestApplyOpenEnv(t *testing.T) {
+	clearEnv(t, "OPEN")
+
+	opts := options{}
+	applyOpenEnv(&opts)
+	if opts.openUI {
+		t.Fatalf("expected openUI to remain false when OPEN is unset")
+	}
+
+	setEnv(t, "OPEN", "1")
+	opts = options{}
+	applyOpenEnv(&opts)
+	if !opts.openUI {
+		t.Fatalf("expected openUI to be enabled when OPEN=1")
+	}
+
+	opts = options{openUI: true}
+	applyOpenEnv(&opts)
+	if !opts.openUI {
+		t.Fatalf("expected existing openUI to stay true")
+	}
+
+	setEnv(t, "OPEN", "false")
+	opts = options{}
+	applyOpenEnv(&opts)
+	if opts.openUI {
+		t.Fatalf("expected openUI to remain false when OPEN is not truthy")
+	}
+}
+
 func TestParseArgsEnvironmentMissingValue(t *testing.T) {
 	t.Parallel()
 

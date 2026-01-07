@@ -31,6 +31,7 @@ import (
 	"github.com/strongdm/leash/internal/lsm"
 	"github.com/strongdm/leash/internal/macsync"
 	"github.com/strongdm/leash/internal/messages"
+	"github.com/strongdm/leash/internal/openflag"
 	"github.com/strongdm/leash/internal/policy"
 	"github.com/strongdm/leash/internal/proxy"
 	"github.com/strongdm/leash/internal/telemetry/statsig"
@@ -224,9 +225,10 @@ func parseConfig(args []string) (*runtimeConfig, error) {
 	wsPort := fs.String("ws-port", "18080", "WebSocket server port")
 
 	serveAddr := fs.String("serve", "", "Serve Control UI and API on bind address (e.g. :18080, 0.0.0.0:8127)")
-	openBrowser := false
-	fs.BoolVar(&openBrowser, "open", false, "Open Control UI in default browser after startup")
-	fs.BoolVar(&openBrowser, "o", false, "Open Control UI in default browser after startup (shorthand)")
+	openDefault := openflag.Enabled()
+	openBrowser := openDefault
+	fs.BoolVar(&openBrowser, "open", openDefault, "Open Control UI in default browser after startup")
+	fs.BoolVar(&openBrowser, "o", openDefault, "Open Control UI in default browser after startup (shorthand)")
 
 	historySize := fs.Int("history-size", 10000, "Number of events to keep in memory for new connections")
 	cgroupFlag := fs.String("cgroup", "", "Cgroup path to monitor")
