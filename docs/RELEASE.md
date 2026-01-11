@@ -14,7 +14,7 @@ flowchart TD
     D --> E[GitHub Actions: Verify job<br/>go test ./..., test_e2e.sh]
     E --> F[GitHub Actions: Release job<br/>Goreleaser + Buildx/QEMU]
     F --> G[Publish GitHub Release<br/>Attach tar.gz archives]
-    F --> H[Push multi-arch images to ghcr.io]
+    F --> H[Push multi-arch images to ECR]
 ```
 
 ## Intentional Design Choices
@@ -37,7 +37,7 @@ go test ./... -count=1
 ```bash
 git status --short              # should be empty
 git describe --tags --exact-match  # should print vX.Y.Z (or fail if not tagged yet)
-docker login ghcr.io            # ensure credentials exist before tagging
+aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws  # ensure credentials exist before tagging
 ```
 3. Optional: run the full Goreleaser dry run (builds all archives/images locally but skips publication):
 
@@ -61,7 +61,7 @@ git push origin v1.2.3
    - **verify job** (Ubuntu runner): runs `go test ./...` and `./test_e2e.sh`.
     - **release job** (Ubuntu runner):
       - Sets up Go, QEMU, and Buildx.
-      - Authenticates to GHCR with the workflow token.
+      - Authenticates to ECR with the workflow token.
       - Runs `./build/lsm-generate.sh` to bake Linux eBPF bindings inside Docker.
       - Runs `goreleaser release --clean` to build darwin/linux binaries (amd64 & arm64) and tar.gz archives.
       - Runs `./build/publish-docker.sh vX.Y.Z` to build and push multi-arch Docker images (linux/amd64, linux/arm64).
@@ -71,8 +71,8 @@ git push origin v1.2.3
 - GitHub Release assets:
   - `leash_<version>_<os>_<arch>.tar.gz`
 - Container registry:
-  - Manifest lists for `ghcr.io/strongdm/leash:{vX.Y.Z,latest}` (linux/amd64 & linux/arm64)
-  - Manifest lists for `ghcr.io/strongdm/coder:{vX.Y.Z,latest}`
+  - Manifest lists for `public.ecr.aws/s5i7k8t3/strongdm/leash:{vX.Y.Z,latest}` (linux/amd64 & linux/arm64)
+  - Manifest lists for `public.ecr.aws/s5i7k8t3/strongdm/coder:{vX.Y.Z,latest}`
 
 If any step fails, the workflow halts and no release is published. Fix the issue (e.g., broken test, missing login) and re-push the tag once resolved.
 
