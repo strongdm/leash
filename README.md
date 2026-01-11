@@ -70,7 +70,7 @@ Leash includes a Model Context Protocol (MCP) observer that inspects, records, a
 
 ### Images and Dependencies
 
-- Keep the default `ghcr.io/strongdm/coder` image for a ready-to-run AI tooling environment.
+- Keep the default `public.ecr.aws/s5i7k8t3/strongdm/coder` image for a ready-to-run AI tooling environment.
 - Extend [Dockerfile.coder](Dockerfile.coder) with project packages, then point Leash at the new image.
 - Reuse an existing project image by adding `ca-certificates` and configuring Leash to launch it.
 
@@ -89,7 +89,7 @@ target_image = "ghcr.io/example/dev:latest"
 
 | Configure               | Use                                     | Notes                                                 |
 |-------------------------|-----------------------------------------|-------------------------------------------------------|
-| Target image            | `target_image` in `config.toml`,        | Defaults to `ghcr.io/strongdm/coder`.                 |
+| Target image            | `target_image` in `config.toml`,        | Defaults to `public.ecr.aws/s5i7k8t3/strongdm/coder`. |
 |                         | `LEASH_TARGET_IMAGE`, or `--image` flag |                                                       |
 | Target container base   | `TARGET_CONTAINER`                      | Auto-sanitized from the current directory when unset. |
 | Leash manager image     | `--leash-image`, `LEASH_IMAGE`          | Override when testing custom manager builds.          |
