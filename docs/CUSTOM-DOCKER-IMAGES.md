@@ -32,6 +32,8 @@ apk add --no-cache ca-certificates
 ```Dockerfile
 FROM public.ecr.aws/s5i7k8t3/strongdm/leash:latest AS leash
 
+FROM public.ecr.aws/s5i7k8t3/strongdm/coder:latest
+
 # ... your existing build stages ...
 
 # Install any additional packages you need (example)
