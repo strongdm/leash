@@ -2,6 +2,7 @@
 /.dev-docker-*
 *.o
 *.tmp
+*.test
 
 # go:generate'd resources
 /internal/entrypoint/embed/*
