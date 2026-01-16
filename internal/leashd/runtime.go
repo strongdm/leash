@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -633,8 +634,17 @@ func (rt *runtimeState) configureNetwork() error {
 		return nil
 	}
 
+	// Extract leashd control plane port from WebBind (e.g., ":18080" or "127.0.0.1:18080")
+	var leashPort string
+	if rt.cfg.WebBind != "" {
+		_, port, err := net.SplitHostPort(rt.cfg.WebBind)
+		if err == nil {
+			leashPort = port
+		}
+	}
+
 	fmt.Fprintf(os.Stderr, "leash: applying network interception rules\n")
-	if err := applyNetworkRules(rt.cfg.ProxyPort); err != nil {
+	if err := applyNetworkRules(rt.cfg.ProxyPort, leashPort, rt.cfg.CgroupPath); err != nil {
 		return err
 	}
 
@@ -712,23 +722,24 @@ var ip6tablesBinaryName = "ip6tables"
 var nftBinaryName = "nft"
 
 // applyNetworkRules attempts nftables first (v4+v6) then falls back to iptables/ip6tables.
-func applyNetworkRules(port string) error {
+// leashPort and cgroupPath are used to block target container from reaching leashd control plane.
+func applyNetworkRules(port, leashPort, cgroupPath string) error {
 	if port == "" {
 		port = "18000"
 	}
 	// Try nftables first if available
 	if _, err := findNft(); err == nil {
-		if err := applyNftablesRules(port); err == nil {
+		if err := applyNftablesRules(port, leashPort, cgroupPath); err == nil {
 			return nil
 		} else {
 			log.Printf("Warning: nftables apply failed; falling back to iptables: %v", err)
 		}
 	}
 	// Fallback: iptables + ip6tables (best-effort)
-	return applyIptablesRules(port)
+	return applyIptablesRules(port, leashPort, cgroupPath)
 }
 
-func applyIptablesRules(port string) error {
+func applyIptablesRules(port, leashPort, cgroupPath string) error {
 	if port == "" {
 		port = "18000"
 	}
@@ -741,7 +752,7 @@ func applyIptablesRules(port string) error {
 		return fmt.Errorf("shell not found: %w", err)
 	}
 
-	cmd := exec.Command(shell, "-s", port)
+	cmd := exec.Command(shell, "-s", port, leashPort, cgroupPath)
 	cmd.Stdin = strings.NewReader(assets.ApplyIptablesScript)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -752,7 +763,7 @@ func applyIptablesRules(port string) error {
 
 	// Best-effort IPv6 support: run ip6tables rules if ip6tables exists
 	if p, _ := findIp6tables(); p != "" {
-		v6 := exec.Command(shell, "-s", port)
+		v6 := exec.Command(shell, "-s", port, leashPort, cgroupPath)
 		v6.Stdin = strings.NewReader(assets.ApplyIp6tablesScript)
 		v6.Stdout = os.Stdout
 		v6.Stderr = os.Stderr
@@ -787,7 +798,7 @@ func findIptables() (string, error) {
 }
 
 // applyNftablesRules runs the embedded nftables script to configure v4+v6.
-func applyNftablesRules(port string) error {
+func applyNftablesRules(port, leashPort, cgroupPath string) error {
 	if port == "" {
 		port = "18000"
 	}
@@ -798,7 +809,7 @@ func applyNftablesRules(port string) error {
 	if _, err := exec.LookPath(shell); err != nil {
 		return fmt.Errorf("shell not found: %w", err)
 	}
-	cmd := exec.Command(shell, "-s", port)
+	cmd := exec.Command(shell, "-s", port, leashPort, cgroupPath)
 	cmd.Stdin = strings.NewReader(assets.ApplyNftablesScript)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
