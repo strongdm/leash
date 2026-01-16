@@ -319,6 +319,23 @@ func runBaselinePolicyScenarios(t *testing.T, env *variantEnv) {
 		})
 	})
 
+	// Test that the target container cannot reach the leashd control plane.
+	// This is a critical security boundary - a compromised agent should not be
+	// able to access the leashd API to modify policies or exfiltrate data.
+	t.Run("baseline/control-plane-isolation", func(t *testing.T) {
+		env.requireEnforcement(t)
+		// Try to connect to leashd control port (default 18080) from target container.
+		// The iptables cgroup rule should reject this connection.
+		env.runCommand(t, commandExpectation{
+			name:             "baseline/control-plane-isolation",
+			command:          []string{"sh", "-c", "wget -qO- --timeout=5 http://127.0.0.1:18080/ 2>&1 || curl -s --connect-timeout 5 http://127.0.0.1:18080/ 2>&1"},
+			allowedExitCodes: []int{1, 4, 5, 6, 7, 8, 28, 52, 56}, // Connection refused/reset/timeout codes
+			// Do NOT retry - we expect immediate rejection
+			retryUntilDeadline: false,
+			ruleRef:            "iptables -m cgroup blocks target from leashd control plane",
+		})
+	})
+
 	t.Run("baseline/net-deny-host", func(t *testing.T) {
 		env.requireEnforcement(t)
 		appendPolicyRule(t, env.policyPath, "deny net.send httpbin.org")
