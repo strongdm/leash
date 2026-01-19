@@ -19,6 +19,8 @@ type Config struct {
 	ProjectTargetImages   map[string]string
 	EnvVars               map[string]string
 	ProjectEnvVars        map[string]map[string]string
+	PolicyFile            string
+	ProjectPolicyFiles    map[string]string
 }
 
 // DecisionScope models the precedence layer that yielded an effective choice.
@@ -56,6 +58,7 @@ func New() Config {
 		ProjectTargetImages:   make(map[string]string),
 		EnvVars:               make(map[string]string),
 		ProjectEnvVars:        make(map[string]map[string]string),
+		ProjectPolicyFiles:    make(map[string]string),
 	}
 }
 
@@ -125,7 +128,11 @@ func (c Config) Clone() Config {
 		}
 		out.ProjectEnvVars[projectPath] = dst
 	}
+	for projectPath, policyFile := range c.ProjectPolicyFiles {
+		out.ProjectPolicyFiles[projectPath] = policyFile
+	}
 	out.TargetImage = c.TargetImage
+	out.PolicyFile = c.PolicyFile
 	return out
 }
 
@@ -249,6 +256,9 @@ func (c *Config) ensureInitialized() {
 	if c.ProjectEnvVars == nil {
 		c.ProjectEnvVars = make(map[string]map[string]string)
 	}
+	if c.ProjectPolicyFiles == nil {
+		c.ProjectPolicyFiles = make(map[string]string)
+	}
 	for key, envs := range c.ProjectEnvVars {
 		if envs == nil {
 			c.ProjectEnvVars[key] = make(map[string]string)
@@ -365,4 +375,57 @@ func (c *Config) UnsetProjectEnvVar(projectPath, key string) error {
 	}
 	c.ProjectEnvVars[projectKey] = envs
 	return nil
+}
+
+// SetGlobalPolicyFile records the default Cedar policy file path for leash-managed sessions.
+func (c *Config) SetGlobalPolicyFile(policyFile string) {
+	c.PolicyFile = strings.TrimSpace(policyFile)
+}
+
+// SetProjectPolicyFile associates a policy file path with the given project path.
+// Passing an empty policy file removes the override.
+func (c *Config) SetProjectPolicyFile(projectPath, policyFile string) error {
+	key, err := normalizeProjectKey(projectPath)
+	if err != nil {
+		return err
+	}
+	c.ensureInitialized()
+	trimmed := strings.TrimSpace(policyFile)
+	if trimmed == "" {
+		delete(c.ProjectPolicyFiles, key)
+		return nil
+	}
+	c.ProjectPolicyFiles[key] = trimmed
+	return nil
+}
+
+// UnsetProjectPolicyFile removes any project-specific policy file override.
+func (c *Config) UnsetProjectPolicyFile(projectPath string) error {
+	key, err := normalizeProjectKey(projectPath)
+	if err != nil {
+		return err
+	}
+	if c.ProjectPolicyFiles == nil {
+		return nil
+	}
+	delete(c.ProjectPolicyFiles, key)
+	return nil
+}
+
+// GetPolicyFile returns the effective policy file path and scope for the given project.
+// It applies precedence rules: project-specific policy file overrides global policy file.
+func (c *Config) GetPolicyFile(projectPath string) (string, DecisionScope, error) {
+	key, err := normalizeProjectKey(projectPath)
+	if err != nil {
+		return "", ScopeUnset, err
+	}
+	if c.ProjectPolicyFiles != nil {
+		if policyFile, ok := c.ProjectPolicyFiles[key]; ok && strings.TrimSpace(policyFile) != "" {
+			return strings.TrimSpace(policyFile), ScopeProject, nil
+		}
+	}
+	if c.PolicyFile != "" {
+		return c.PolicyFile, ScopeGlobal, nil
+	}
+	return "", ScopeUnset, nil
 }

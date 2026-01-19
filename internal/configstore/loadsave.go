@@ -139,6 +139,10 @@ func decodeConfig(data []byte, path string, cfg *Config) error {
 					if s, ok := value.(string); ok {
 						cfg.ProjectTargetImages[normalizedKey] = strings.TrimSpace(s)
 					}
+				case "policy_file":
+					if s, ok := value.(string); ok {
+						cfg.ProjectPolicyFiles[normalizedKey] = strings.TrimSpace(s)
+					}
 				case "envvars":
 					envTable, ok := value.(map[string]any)
 					if !ok {
@@ -202,6 +206,9 @@ func decodeConfig(data []byte, path string, cfg *Config) error {
 	if leash, ok := raw["leash"].(map[string]any); ok {
 		if target, ok := leash["target_image"].(string); ok {
 			cfg.TargetImage = strings.TrimSpace(target)
+		}
+		if policyFile, ok := leash["policy_file"].(string); ok {
+			cfg.PolicyFile = strings.TrimSpace(policyFile)
 		}
 		if envTable, ok := leash["envvars"].(map[string]any); ok {
 			for key, rawVal := range envTable {
@@ -318,6 +325,9 @@ func buildPersisted(cfg Config) persistedConfig {
 	for key := range cfg.ProjectTargetImages {
 		projectKeys[key] = struct{}{}
 	}
+	for key := range cfg.ProjectPolicyFiles {
+		projectKeys[key] = struct{}{}
+	}
 	for key := range cfg.ProjectEnvVars {
 		projectKeys[key] = struct{}{}
 	}
@@ -365,6 +375,9 @@ func buildPersisted(cfg Config) persistedConfig {
 			if img := strings.TrimSpace(cfg.ProjectTargetImages[key]); img != "" {
 				entry["target_image"] = img
 			}
+			if policyFile := strings.TrimSpace(cfg.ProjectPolicyFiles[key]); policyFile != "" {
+				entry["policy_file"] = policyFile
+			}
 			if len(volumeEntries) > 0 {
 				entry["volumes"] = volumeEntries
 			}
@@ -382,6 +395,13 @@ func buildPersisted(cfg Config) persistedConfig {
 			result.Leash = make(map[string]any)
 		}
 		result.Leash["target_image"] = img
+	}
+
+	if policyFile := strings.TrimSpace(cfg.PolicyFile); policyFile != "" {
+		if result.Leash == nil {
+			result.Leash = make(map[string]any)
+		}
+		result.Leash["policy_file"] = policyFile
 	}
 
 	if len(cfg.EnvVars) > 0 {

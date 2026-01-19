@@ -881,21 +881,6 @@ func loadConfig(callerDir string, opts options) (config, map[string]configstore.
 
 	cfg.privateDir = filepath.Join(workDir, "private")
 
-	envPolicy := strings.TrimSpace(os.Getenv("LEASH_POLICY_FILE"))
-	// Do not default to docs/example.cedar anymore. If LEASH_POLICY_FILE is
-	// unset, we allow the runtime to generate a permissive policy from Cedar.
-	if envPolicy != "" {
-		resolvedPolicy, err := resolvePolicyPath(callerDir, envPolicy)
-		if err != nil {
-			return config{}, nil, err
-		}
-		cfg.policyPath = resolvedPolicy
-		cfg.policyOverride = true
-	} else {
-		cfg.policyPath = ""
-		cfg.policyOverride = false
-	}
-
 	cfgData, err := configstore.Load()
 	if err != nil {
 		return config{}, nil, fmt.Errorf("load leash config: %w", err)
@@ -918,6 +903,34 @@ func loadConfig(callerDir string, opts options) (config, map[string]configstore.
 		cfg.targetImage = targetFromConfig
 		cfg.targetImageSource = imageSourceConfig
 		cfg.targetImageDevFile = ""
+	}
+
+	envPolicy := strings.TrimSpace(os.Getenv("LEASH_POLICY_FILE"))
+	policyFromConfig := ""
+	if policyFile, _, policyErr := cfgData.GetPolicyFile(callerDir); policyErr == nil && strings.TrimSpace(policyFile) != "" {
+		policyFromConfig = strings.TrimSpace(policyFile)
+	}
+
+	// Precedence: env var > config.toml
+	// Do not default to docs/example.cedar anymore. If LEASH_POLICY_FILE is
+	// unset, we allow the runtime to generate a permissive policy from Cedar.
+	if envPolicy != "" {
+		resolvedPolicy, err := resolvePolicyPath(callerDir, envPolicy)
+		if err != nil {
+			return config{}, nil, err
+		}
+		cfg.policyPath = resolvedPolicy
+		cfg.policyOverride = true
+	} else if policyFromConfig != "" {
+		resolvedPolicy, err := resolvePolicyPath(callerDir, policyFromConfig)
+		if err != nil {
+			return config{}, nil, err
+		}
+		cfg.policyPath = resolvedPolicy
+		cfg.policyOverride = true
+	} else {
+		cfg.policyPath = ""
+		cfg.policyOverride = false
 	}
 
 	envTarget := strings.TrimSpace(os.Getenv("LEASH_TARGET_IMAGE"))
