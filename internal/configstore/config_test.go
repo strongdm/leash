@@ -843,7 +843,9 @@ func TestPolicyFileSaveRoundTrip(t *testing.T) {
 		t.Fatalf("Load after save: %v", err)
 	}
 
-	globalPolicy, globalScope, err := loaded.GetPolicyFile("")
+	// Query a different project to verify it gets the global policy
+	otherProject := filepath.Join(base, "other")
+	globalPolicy, globalScope, err := loaded.GetPolicyFile(otherProject)
 	if err != nil {
 		t.Fatalf("GetPolicyFile(global): %v", err)
 	}
