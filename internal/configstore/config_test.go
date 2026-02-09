@@ -748,3 +748,254 @@ func TestSetProjectVolumeNormalizesPaths(t *testing.T) {
 		t.Fatalf("expected last value false, got %+v", decision)
 	}
 }
+
+// This test mutates config env settings while persisting files; keep it serial
+// so parallel tests do not observe the temporary configuration.
+func TestPolicyFileConfigPrecedence(t *testing.T) {
+	testSetEnv(t, "LEASH_HOME", "")
+	base := t.TempDir()
+	testSetEnv(t, "XDG_CONFIG_HOME", base)
+	setHome(t, filepath.Join(base, "home"))
+
+	project := filepath.Join(base, "proj")
+	cfg := New()
+	cfg.SetGlobalPolicyFile("~/policies/global.cedar")
+	if err := cfg.SetProjectPolicyFile(project, "./policies/project.cedar"); err != nil {
+		t.Fatalf("SetProjectPolicyFile: %v", err)
+	}
+	if err := Save(cfg); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	loaded, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	policyFile, scope, err := loaded.GetPolicyFile(project)
+	if err != nil {
+		t.Fatalf("GetPolicyFile(project): %v", err)
+	}
+	if policyFile != "./policies/project.cedar" || scope != ScopeProject {
+		t.Fatalf("expected project policy file, got policyFile=%q scope=%s", policyFile, scope)
+	}
+
+	otherPolicyFile, otherScope, err := loaded.GetPolicyFile(filepath.Join(base, "other"))
+	if err != nil {
+		t.Fatalf("GetPolicyFile(other): %v", err)
+	}
+	if otherPolicyFile != "~/policies/global.cedar" || otherScope != ScopeGlobal {
+		t.Fatalf("expected global policy file, got policyFile=%q scope=%s", otherPolicyFile, otherScope)
+	}
+
+	_, file, err := GetConfigPath()
+	if err != nil {
+		t.Fatalf("GetConfigPath: %v", err)
+	}
+	data, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	contents := string(data)
+	if !strings.Contains(contents, "policy_file = '~/policies/global.cedar'") {
+		t.Fatalf("expected global policy file in config, got:\n%s", contents)
+	}
+	if !strings.Contains(contents, "policy_file = './policies/project.cedar'") {
+		t.Fatalf("expected project policy file in config, got:\n%s", contents)
+	}
+}
+
+// This test writes config files to a temporary home and should be serial to
+// avoid leaking env overrides to concurrent tests.
+func TestPolicyFileSaveRoundTrip(t *testing.T) {
+	testSetEnv(t, "LEASH_HOME", "")
+	base := t.TempDir()
+	testSetEnv(t, "XDG_CONFIG_HOME", base)
+	setHome(t, filepath.Join(base, "home"))
+
+	cfg := New()
+	cfg.SetGlobalPolicyFile("~/leash/default.cedar")
+	projectPath := filepath.Join(base, "proj")
+	if err := cfg.SetProjectPolicyFile(projectPath, "./policies/app.cedar"); err != nil {
+		t.Fatalf("SetProjectPolicyFile: %v", err)
+	}
+	if err := Save(cfg); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	_, file, err := GetConfigPath()
+	if err != nil {
+		t.Fatalf("GetConfigPath: %v", err)
+	}
+	data, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if !bytes.Contains(data, []byte("policy_file = '~/leash/default.cedar'")) {
+		t.Fatalf("expected global policy file in config, got:\n%s", data)
+	}
+	if !bytes.Contains(data, []byte("policy_file = './policies/app.cedar'")) {
+		t.Fatalf("expected project policy file in config, got:\n%s", data)
+	}
+
+	loaded, err := Load()
+	if err != nil {
+		t.Fatalf("Load after save: %v", err)
+	}
+
+	globalPolicy, globalScope, err := loaded.GetPolicyFile("")
+	if err != nil {
+		t.Fatalf("GetPolicyFile(global): %v", err)
+	}
+	if globalPolicy != "~/leash/default.cedar" || globalScope != ScopeGlobal {
+		t.Fatalf("expected global policy file, got policy=%q scope=%s", globalPolicy, globalScope)
+	}
+
+	projectPolicy, projectScope, err := loaded.GetPolicyFile(projectPath)
+	if err != nil {
+		t.Fatalf("GetPolicyFile(project): %v", err)
+	}
+	if projectPolicy != "./policies/app.cedar" || projectScope != ScopeProject {
+		t.Fatalf("expected project policy file, got policy=%q scope=%s", projectPolicy, projectScope)
+	}
+}
+
+// This test sets HOME and expands environment variables; execute serially to
+// prevent shared state leaks.
+func TestPolicyFileWithPathExpansions(t *testing.T) {
+	testSetEnv(t, "LEASH_HOME", "")
+	base := t.TempDir()
+	testSetEnv(t, "XDG_CONFIG_HOME", base)
+	homeDir := filepath.Join(base, "home")
+	setHome(t, homeDir)
+
+	srcProject := filepath.Join(homeDir, "src", "project")
+	if err := os.MkdirAll(srcProject, 0o755); err != nil {
+		t.Fatalf("mkdir project: %v", err)
+	}
+
+	workRoot := filepath.Join(base, "workroot")
+	if err := os.MkdirAll(workRoot, 0o755); err != nil {
+		t.Fatalf("mkdir workroot: %v", err)
+	}
+	testSetEnv(t, "WORKROOT", workRoot)
+
+	serviceProject := filepath.Join(workRoot, "service")
+	if err := os.MkdirAll(serviceProject, 0o755); err != nil {
+		t.Fatalf("mkdir service: %v", err)
+	}
+
+	content := `
+[leash]
+policy_file = "~/policies/global.cedar"
+
+[projects."~/src/project"]
+policy_file = "./policies/local.cedar"
+
+[projects."${WORKROOT}/service"]
+policy_file = "${WORKROOT}/policies/service.cedar"
+`
+
+	dir, file, err := GetConfigPath()
+	if err != nil {
+		t.Fatalf("GetConfigPath: %v", err)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
+	if err := os.WriteFile(file, []byte(strings.TrimSpace(content)+"\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.PolicyFile != "~/policies/global.cedar" {
+		t.Fatalf("expected global policy file, got %q", cfg.PolicyFile)
+	}
+
+	normalizedHome, err := normalizeProjectKey(srcProject)
+	if err != nil {
+		t.Fatalf("normalizeProjectKey home: %v", err)
+	}
+	homePolicy := cfg.ProjectPolicyFiles[normalizedHome]
+	if homePolicy != "./policies/local.cedar" {
+		t.Fatalf("expected home project policy for %s, got %q", normalizedHome, homePolicy)
+	}
+
+	normalizedService, err := normalizeProjectKey(serviceProject)
+	if err != nil {
+		t.Fatalf("normalizeProjectKey service: %v", err)
+	}
+	servicePolicy := cfg.ProjectPolicyFiles[normalizedService]
+	if servicePolicy != "${WORKROOT}/policies/service.cedar" {
+		t.Fatalf("expected service project policy for %s, got %q", normalizedService, servicePolicy)
+	}
+}
+
+// This test ensures empty policy file removes override; run serially.
+func TestUnsetPolicyFileRemovesOverride(t *testing.T) {
+	testSetEnv(t, "LEASH_HOME", "")
+	base := t.TempDir()
+	testSetEnv(t, "XDG_CONFIG_HOME", base)
+	setHome(t, filepath.Join(base, "home"))
+
+	cfg := New()
+	projectPath := filepath.Join(base, "proj")
+
+	if err := cfg.SetProjectPolicyFile(projectPath, "~/policies/app.cedar"); err != nil {
+		t.Fatalf("SetProjectPolicyFile: %v", err)
+	}
+
+	policy, scope, err := cfg.GetPolicyFile(projectPath)
+	if err != nil {
+		t.Fatalf("GetPolicyFile before unset: %v", err)
+	}
+	if policy != "~/policies/app.cedar" || scope != ScopeProject {
+		t.Fatalf("expected project policy before unset, got policy=%q scope=%s", policy, scope)
+	}
+
+	if err := cfg.UnsetProjectPolicyFile(projectPath); err != nil {
+		t.Fatalf("UnsetProjectPolicyFile: %v", err)
+	}
+
+	policy, scope, err = cfg.GetPolicyFile(projectPath)
+	if err != nil {
+		t.Fatalf("GetPolicyFile after unset: %v", err)
+	}
+	if policy != "" || scope != ScopeUnset {
+		t.Fatalf("expected unset policy after unset, got policy=%q scope=%s", policy, scope)
+	}
+
+	if err := cfg.SetProjectPolicyFile(projectPath, "   "); err != nil {
+		t.Fatalf("SetProjectPolicyFile with whitespace: %v", err)
+	}
+
+	policy, scope, err = cfg.GetPolicyFile(projectPath)
+	if err != nil {
+		t.Fatalf("GetPolicyFile after empty string: %v", err)
+	}
+	if policy != "" || scope != ScopeUnset {
+		t.Fatalf("expected unset policy after empty string, got policy=%q scope=%s", policy, scope)
+	}
+}
+
+// This test verifies that missing policy files in config return ScopeUnset.
+func TestGetPolicyFileReturnsUnsetWhenNotConfigured(t *testing.T) {
+	testSetEnv(t, "LEASH_HOME", "")
+	base := t.TempDir()
+	testSetEnv(t, "XDG_CONFIG_HOME", base)
+	setHome(t, filepath.Join(base, "home"))
+
+	cfg := New()
+
+	policy, scope, err := cfg.GetPolicyFile(filepath.Join(base, "proj"))
+	if err != nil {
+		t.Fatalf("GetPolicyFile: %v", err)
+	}
+	if policy != "" || scope != ScopeUnset {
+		t.Fatalf("expected unset policy for unconfigured project, got policy=%q scope=%s", policy, scope)
+	}
+}
