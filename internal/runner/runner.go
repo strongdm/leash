@@ -1981,6 +1981,9 @@ func selinuxEnabled() bool {
 	if err != nil {
 		return false
 	}
+	// Only canonical enforcing/permissive values indicate a usable SELinux mount.
+	// Treat unknown content as disabled to avoid forcing relabel options on
+	// hosts where detection is ambiguous.
 	mode := strings.TrimSpace(string(data))
 	return mode == "0" || mode == "1"
 }
@@ -1992,7 +1995,7 @@ func withSELinuxRelabelMode(mode string) string {
 	}
 	for _, option := range strings.Split(mode, ",") {
 		trimmed := strings.TrimSpace(option)
-		if strings.EqualFold(trimmed, "z") || strings.EqualFold(trimmed, "Z") {
+		if strings.EqualFold(trimmed, "z") {
 			return mode
 		}
 	}
