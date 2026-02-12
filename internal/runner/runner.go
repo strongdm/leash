@@ -145,6 +145,8 @@ type runner struct {
 	verbose         bool
 	shareDirCreated bool
 	keepContainers  bool
+	selinuxRelabel  bool
+	selinuxChecked  bool
 
 	logger        *log.Logger
 	mountState    *mountState
@@ -1843,7 +1845,7 @@ func (r *runner) launchTargetContainer(ctx context.Context, stopSignal string) e
 		"NODE_OPTIONS=--use-openssl-ca",
 	}
 	args = append(args,
-		"-v", fmt.Sprintf("%s:%s", r.cfg.shareDir, leashPublicMount),
+		"-v", r.internalBindMountSpec(r.cfg.shareDir, leashPublicMount, ""),
 		"-v", fmt.Sprintf("%s:%s", r.cfg.callerDir, r.cfg.callerDir),
 		"-w", r.cfg.callerDir,
 		"-e", fmt.Sprintf("LEASH_DIR=%s", leashPublicMount),
@@ -1973,6 +1975,69 @@ func (r *runner) detectImageArch(ctx context.Context) (string, error) {
 	return normalizeArch(out)
 }
 
+func selinuxEnabled() bool {
+	const enforcePath = "/sys/fs/selinux/enforce"
+	data, err := os.ReadFile(enforcePath)
+	if err != nil {
+		return false
+	}
+	mode := strings.TrimSpace(string(data))
+	return mode == "0" || mode == "1"
+}
+
+func withSELinuxRelabelMode(mode string) string {
+	mode = strings.TrimSpace(mode)
+	if mode == "" {
+		return "z"
+	}
+	for _, option := range strings.Split(mode, ",") {
+		trimmed := strings.TrimSpace(option)
+		if strings.EqualFold(trimmed, "z") || strings.EqualFold(trimmed, "Z") {
+			return mode
+		}
+	}
+	return mode + ",z"
+}
+
+func (r *runner) shouldRelabelInternalMounts() bool {
+	if r.selinuxChecked {
+		return r.selinuxRelabel
+	}
+	r.selinuxChecked = true
+	if r.cfg.hostOS != "linux" {
+		return false
+	}
+	if !selinuxEnabled() {
+		return false
+	}
+	r.selinuxRelabel = true
+	r.debugf("SELinux detected; applying :z to leash-managed bind mounts")
+	return true
+}
+
+func (r *runner) shouldRelabelMountPath(host string) bool {
+	if !r.shouldRelabelInternalMounts() {
+		return false
+	}
+	workDir := filepath.Clean(strings.TrimSpace(r.cfg.workDir))
+	if workDir == "" || workDir == "." {
+		return false
+	}
+	host = filepath.Clean(strings.TrimSpace(host))
+	return host == workDir || strings.HasPrefix(host, workDir+string(os.PathSeparator))
+}
+
+func (r *runner) internalBindMountSpec(host, container, mode string) string {
+	mountMode := strings.TrimSpace(mode)
+	if r.shouldRelabelMountPath(host) {
+		mountMode = withSELinuxRelabelMode(mountMode)
+	}
+	if mountMode == "" {
+		return fmt.Sprintf("%s:%s", host, container)
+	}
+	return fmt.Sprintf("%s:%s:%s", host, container, mountMode)
+}
+
 func normalizeArch(raw string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "amd64", "x86_64":
@@ -2026,10 +2091,10 @@ func (r *runner) launchLeashContainer(ctx context.Context, cgroupPath string) er
 		"--cgroupns=host", // Use host cgroup namespace for iptables cgroup matching
 		"--network", fmt.Sprintf("container:%s", r.cfg.targetContainer),
 		"-v", "/sys/fs/cgroup:/sys/fs/cgroup:ro",
-		"-v", fmt.Sprintf("%s:/log", r.cfg.logDir),
-		"-v", fmt.Sprintf("%s:/cfg", r.cfg.cfgDir),
-		"-v", fmt.Sprintf("%s:%s", r.cfg.shareDir, leashPublicMount),
-		"-v", fmt.Sprintf("%s:%s", r.cfg.privateDir, leashPrivateMount),
+		"-v", r.internalBindMountSpec(r.cfg.logDir, "/log", ""),
+		"-v", r.internalBindMountSpec(r.cfg.cfgDir, "/cfg", ""),
+		"-v", r.internalBindMountSpec(r.cfg.shareDir, leashPublicMount, ""),
+		"-v", r.internalBindMountSpec(r.cfg.privateDir, leashPrivateMount, ""),
 		"-e", fmt.Sprintf("LEASH_PROXY_PORT=%s", r.cfg.proxyPort),
 		"-e", fmt.Sprintf("LEASH_LISTEN=%s", r.cfg.listenCfg.Address()),
 		"-e", "LEASH_LOG=/log/events.log",
