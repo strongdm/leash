@@ -2,6 +2,7 @@ FROM debian:testing-slim
 
 ARG NODE_MAJOR=22
 ENV DEBIAN_FRONTEND=noninteractive
+ENV NODE_OPTIONS="--dns-result-order=ipv4first"
 
 ARG VERSION=dev
 ARG COMMIT=dev
@@ -29,6 +30,7 @@ RUN set -eux; \
         opencode-ai@latest; \
     npm install -g \
         @upstash/context7-mcp; \
+    printf 'precedence ::ffff:0:0/96 100\n' >> /etc/gai.conf; \
     rm -rf /var/lib/apt/lists/*
 
 LABEL org.opencontainers.image.version="v${VERSION}" \

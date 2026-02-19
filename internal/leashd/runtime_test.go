@@ -431,3 +431,45 @@ func TestPreFlightMissingIptables(t *testing.T) {
 		t.Fatalf("expected iptables error, got %v", err)
 	}
 }
+
+func TestNormalizeCgroupPathForFirewall(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "absolute path under cgroup root",
+			in:   "/sys/fs/cgroup/system.slice/docker-abc.scope",
+			want: "system.slice/docker-abc.scope",
+		},
+		{
+			name: "cgroup root only",
+			in:   "/sys/fs/cgroup",
+			want: "/",
+		},
+		{
+			name: "already relative",
+			in:   "system.slice/docker-abc.scope",
+			want: "system.slice/docker-abc.scope",
+		},
+		{
+			name: "other absolute path unchanged",
+			in:   "/tmp/custom-cgroup",
+			want: "/tmp/custom-cgroup",
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := normalizeCgroupPathForFirewall(tc.in)
+			if got != tc.want {
+				t.Fatalf("normalizeCgroupPathForFirewall(%q) = %q; want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}

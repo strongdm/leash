@@ -643,8 +643,10 @@ func (rt *runtimeState) configureNetwork() error {
 		}
 	}
 
+	// iptables --path and nft socket cgroupv2 expect paths relative to cgroup2 root.
+	cgroupPathForFirewall := normalizeCgroupPathForFirewall(rt.cfg.CgroupPath)
 	fmt.Fprintf(os.Stderr, "leash: applying network interception rules\n")
-	if err := applyNetworkRules(rt.cfg.ProxyPort, leashPort, rt.cfg.CgroupPath); err != nil {
+	if err := applyNetworkRules(rt.cfg.ProxyPort, leashPort, cgroupPathForFirewall); err != nil {
 		return err
 	}
 
@@ -676,6 +678,23 @@ func (rt *runtimeState) configureNetwork() error {
 		log.Printf("Warning: Failed to mount tracefs: %v", err)
 	}
 	return nil
+}
+
+func normalizeCgroupPathForFirewall(path string) string {
+	cleaned := filepath.Clean(strings.TrimSpace(path))
+	if cleaned == "" {
+		return ""
+	}
+
+	const cgroupRoot = "/sys/fs/cgroup"
+	switch {
+	case cleaned == cgroupRoot:
+		return "/"
+	case strings.HasPrefix(cleaned, cgroupRoot+"/"):
+		return strings.TrimPrefix(cleaned, cgroupRoot+"/")
+	default:
+		return cleaned
+	}
 }
 
 func connectDefaultAllow(policies *lsm.PolicySet) bool {
