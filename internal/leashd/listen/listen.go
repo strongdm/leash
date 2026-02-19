@@ -84,6 +84,16 @@ func (c Config) Address() string {
 	return net.JoinHostPort(c.Host, c.Port)
 }
 
+// ContainerAddress returns the bind string used inside the container network namespace.
+// We always bind wildcard in-container and rely on Docker host publish rules to restrict
+// host-side exposure (for example, 127.0.0.1-only).
+func (c Config) ContainerAddress() string {
+	if c.Disable {
+		return ""
+	}
+	return ":" + c.Port
+}
+
 // DockerPublish returns the docker -p argument for this listen configuration.
 func (c Config) DockerPublish() string {
 	if c.Disable {

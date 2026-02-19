@@ -2099,7 +2099,7 @@ func (r *runner) launchLeashContainer(ctx context.Context, cgroupPath string) er
 		"-v", r.internalBindMountSpec(r.cfg.shareDir, leashPublicMount, ""),
 		"-v", r.internalBindMountSpec(r.cfg.privateDir, leashPrivateMount, ""),
 		"-e", fmt.Sprintf("LEASH_PROXY_PORT=%s", r.cfg.proxyPort),
-		"-e", fmt.Sprintf("LEASH_LISTEN=%s", r.cfg.listenCfg.Address()),
+		"-e", fmt.Sprintf("LEASH_LISTEN=%s", r.cfg.listenCfg.ContainerAddress()),
 		"-e", "LEASH_LOG=/log/events.log",
 		"-e", "LEASH_POLICY=/cfg/leash.cedar",
 		"-e", fmt.Sprintf("LEASH_CGROUP_PATH=%s", cgroupPath),
@@ -2110,7 +2110,7 @@ func (r *runner) launchLeashContainer(ctx context.Context, cgroupPath string) er
 	leashMounts := []string{"/sys/fs/cgroup", "/log", "/cfg", leashPublicMount, leashPrivateMount}
 	leashEnv := []string{
 		fmt.Sprintf("LEASH_PROXY_PORT=%s", r.cfg.proxyPort),
-		fmt.Sprintf("LEASH_LISTEN=%s", r.cfg.listenCfg.Address()),
+		fmt.Sprintf("LEASH_LISTEN=%s", r.cfg.listenCfg.ContainerAddress()),
 		"LEASH_LOG=/log/events.log",
 		"LEASH_POLICY=/cfg/leash.cedar",
 		fmt.Sprintf("LEASH_CGROUP_PATH=%s", cgroupPath),

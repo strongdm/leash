@@ -88,3 +88,17 @@ func TestDisplayURL(t *testing.T) {
 		t.Fatalf("DisplayURL ipv6 = %s", got)
 	}
 }
+
+func TestContainerAddress(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{Host: "127.0.0.1", Port: "18080"}
+	if got := cfg.ContainerAddress(); got != ":18080" {
+		t.Fatalf("ContainerAddress loopback = %s", got)
+	}
+
+	disabled := Config{Disable: true}
+	if got := disabled.ContainerAddress(); got != "" {
+		t.Fatalf("ContainerAddress disabled = %q", got)
+	}
+}
