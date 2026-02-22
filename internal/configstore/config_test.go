@@ -751,74 +751,21 @@ func TestSetProjectVolumeNormalizesPaths(t *testing.T) {
 
 // This test mutates config env settings while persisting files; keep it serial
 // so parallel tests do not observe the temporary configuration.
-func TestPolicyFileConfigPrecedence(t *testing.T) {
+func TestPolicyFilePersistenceAndPrecedence(t *testing.T) {
 	testSetEnv(t, "LEASH_HOME", "")
 	base := t.TempDir()
 	testSetEnv(t, "XDG_CONFIG_HOME", base)
 	setHome(t, filepath.Join(base, "home"))
 
-	project := filepath.Join(base, "proj")
-	cfg := New()
-	cfg.SetGlobalPolicyFile("~/policies/global.cedar")
-	if err := cfg.SetProjectPolicyFile(project, "./policies/project.cedar"); err != nil {
-		t.Fatalf("SetProjectPolicyFile: %v", err)
-	}
-	if err := Save(cfg); err != nil {
-		t.Fatalf("Save: %v", err)
-	}
-
-	loaded, err := Load()
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-
-	policyFile, scope, err := loaded.GetPolicyFile(project)
-	if err != nil {
-		t.Fatalf("GetPolicyFile(project): %v", err)
-	}
-	if policyFile != "./policies/project.cedar" || scope != ScopeProject {
-		t.Fatalf("expected project policy file, got policyFile=%q scope=%s", policyFile, scope)
-	}
-
-	otherPolicyFile, otherScope, err := loaded.GetPolicyFile(filepath.Join(base, "other"))
-	if err != nil {
-		t.Fatalf("GetPolicyFile(other): %v", err)
-	}
-	if otherPolicyFile != "~/policies/global.cedar" || otherScope != ScopeGlobal {
-		t.Fatalf("expected global policy file, got policyFile=%q scope=%s", otherPolicyFile, otherScope)
-	}
-
-	_, file, err := GetConfigPath()
-	if err != nil {
-		t.Fatalf("GetConfigPath: %v", err)
-	}
-	data, err := os.ReadFile(file)
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	contents := string(data)
-	if !strings.Contains(contents, "policy_file = '~/policies/global.cedar'") {
-		t.Fatalf("expected global policy file in config, got:\n%s", contents)
-	}
-	if !strings.Contains(contents, "policy_file = './policies/project.cedar'") {
-		t.Fatalf("expected project policy file in config, got:\n%s", contents)
-	}
-}
-
-// This test writes config files to a temporary home and should be serial to
-// avoid leaking env overrides to concurrent tests.
-func TestPolicyFileSaveRoundTrip(t *testing.T) {
-	testSetEnv(t, "LEASH_HOME", "")
-	base := t.TempDir()
-	testSetEnv(t, "XDG_CONFIG_HOME", base)
-	setHome(t, filepath.Join(base, "home"))
-
+	// Set up config with both global and project-specific policy files
 	cfg := New()
 	cfg.SetGlobalPolicyFile("~/leash/default.cedar")
 	projectPath := filepath.Join(base, "proj")
 	if err := cfg.SetProjectPolicyFile(projectPath, "./policies/app.cedar"); err != nil {
 		t.Fatalf("SetProjectPolicyFile: %v", err)
 	}
+
+	// Save and verify TOML persistence
 	if err := Save(cfg); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -838,27 +785,29 @@ func TestPolicyFileSaveRoundTrip(t *testing.T) {
 		t.Fatalf("expected project policy file in config, got:\n%s", data)
 	}
 
+	// Load and verify roundtrip
 	loaded, err := Load()
 	if err != nil {
 		t.Fatalf("Load after save: %v", err)
 	}
 
-	// Query a different project to verify it gets the global policy
-	otherProject := filepath.Join(base, "other")
-	globalPolicy, globalScope, err := loaded.GetPolicyFile(otherProject)
-	if err != nil {
-		t.Fatalf("GetPolicyFile(global): %v", err)
-	}
-	if globalPolicy != "~/leash/default.cedar" || globalScope != ScopeGlobal {
-		t.Fatalf("expected global policy file, got policy=%q scope=%s", globalPolicy, globalScope)
-	}
-
+	// Test precedence: project-specific path should override global
 	projectPolicy, projectScope, err := loaded.GetPolicyFile(projectPath)
 	if err != nil {
 		t.Fatalf("GetPolicyFile(project): %v", err)
 	}
 	if projectPolicy != "./policies/app.cedar" || projectScope != ScopeProject {
 		t.Fatalf("expected project policy file, got policy=%q scope=%s", projectPolicy, projectScope)
+	}
+
+	// Test precedence: different project should get global policy
+	otherProject := filepath.Join(base, "other")
+	globalPolicy, globalScope, err := loaded.GetPolicyFile(otherProject)
+	if err != nil {
+		t.Fatalf("GetPolicyFile(other): %v", err)
+	}
+	if globalPolicy != "~/leash/default.cedar" || globalScope != ScopeGlobal {
+		t.Fatalf("expected global policy file, got policy=%q scope=%s", globalPolicy, globalScope)
 	}
 }
 
