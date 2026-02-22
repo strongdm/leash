@@ -912,8 +912,6 @@ func loadConfig(callerDir string, opts options) (config, map[string]configstore.
 	}
 
 	// Precedence: env var > config.toml
-	// Do not default to docs/example.cedar anymore. If LEASH_POLICY_FILE is
-	// unset, we allow the runtime to generate a permissive policy from Cedar.
 	if envPolicy != "" {
 		resolvedPolicy, err := resolvePolicyPath(callerDir, envPolicy)
 		if err != nil {
@@ -929,6 +927,8 @@ func loadConfig(callerDir string, opts options) (config, map[string]configstore.
 		cfg.policyPath = resolvedPolicy
 		cfg.policyOverride = true
 	} else {
+		// Do not default to docs/example.cedar anymore. If policy file config is
+		// unset, we allow the runtime to generate a permissive policy from Cedar.
 		cfg.policyPath = ""
 		cfg.policyOverride = false
 	}
