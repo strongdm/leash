@@ -104,6 +104,9 @@ policy_file = "~/leash/policies/default.cedar"
 
 [projects."/Users/alice/src/app"]
 policy_file = "./policies/app-policy.cedar"
+
+[projects."${HOME}/src/service"]
+policy_file = "${XDG_CONFIG_HOME}/leash/policies/service.cedar"
 ```
 
 For detailed information on writing Cedar policy files, see [design/CEDAR.md](design/CEDAR.md) — this reference is particularly useful when working with AI coding agents to generate new policy files.

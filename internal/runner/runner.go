@@ -1047,11 +1047,20 @@ func envOrDefault(key, fallback string) string {
 	return fallback
 }
 
+// resolvePolicyPath expands environment variables, tilde, and relative paths.
+// Note: This duplicates logic from configstore.expandLeadingTilde and
+// configstore.resolveVolumeHost to avoid cross-package coupling. If this pattern
+// appears a third time, consider extracting a shared path resolution utility.
 func resolvePolicyPath(base, candidate string) (string, error) {
 	path := strings.TrimSpace(candidate)
 	if path == "" {
 		return "", errors.New("policy path must not be empty")
 	}
+
+	// Expand environment variables first (e.g., ${HOME}, ${XDG_CONFIG_HOME})
+	path = os.ExpandEnv(path)
+
+	// Then expand tilde prefix
 	switch {
 	case path == "~":
 		home, err := os.UserHomeDir()

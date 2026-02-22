@@ -375,3 +375,105 @@ func TestLogDevImageSelectionsEmitsMessage(t *testing.T) {
 		t.Fatalf("expected only target override to be logged, got %q", output)
 	}
 }
+
+func TestResolvePolicyPath(t *testing.T) {
+	tests := []struct {
+		name      string
+		base      string
+		candidate string
+		envVars   map[string]string
+		want      string
+		wantErr   bool
+	}{
+		{
+			name:      "empty path returns error",
+			base:      "/project",
+			candidate: "",
+			wantErr:   true,
+		},
+		{
+			name:      "whitespace-only path returns error",
+			base:      "/project",
+			candidate: "   ",
+			wantErr:   true,
+		},
+		{
+			name:      "absolute path unchanged",
+			base:      "/project",
+			candidate: "/etc/policies/policy.cedar",
+			want:      "/etc/policies/policy.cedar",
+		},
+		{
+			name:      "relative path joined to base",
+			base:      "/project",
+			candidate: "./policies/local.cedar",
+			want:      "/project/policies/local.cedar",
+		},
+		{
+			name:      "tilde expands to home",
+			base:      "/project",
+			candidate: "~",
+			want:      os.Getenv("HOME"),
+		},
+		{
+			name:      "tilde slash expands to home subpath",
+			base:      "/project",
+			candidate: "~/policies/default.cedar",
+			want:      filepath.Join(os.Getenv("HOME"), "policies/default.cedar"),
+		},
+		{
+			name:      "environment variable expands",
+			base:      "/project",
+			candidate: "${TEST_POLICY_DIR}/policy.cedar",
+			envVars:   map[string]string{"TEST_POLICY_DIR": "/var/policies"},
+			want:      "/var/policies/policy.cedar",
+		},
+		{
+			name:      "multiple environment variables expand",
+			base:      "/project",
+			candidate: "${TEST_ROOT}/${TEST_SUBDIR}/policy.cedar",
+			envVars:   map[string]string{"TEST_ROOT": "/root", "TEST_SUBDIR": "policies"},
+			want:      "/root/policies/policy.cedar",
+		},
+		{
+			name:      "env var then tilde expansion",
+			base:      "/project",
+			candidate: "${HOME}/policies/default.cedar",
+			envVars:   map[string]string{"HOME": "/home/testuser"},
+			want:      "/home/testuser/policies/default.cedar",
+		},
+		{
+			name:      "env var in relative path",
+			base:      "/project",
+			candidate: "./${TEST_SUBDIR}/policy.cedar",
+			envVars:   map[string]string{"TEST_SUBDIR": "policies"},
+			want:      "/project/policies/policy.cedar",
+		},
+		{
+			name:      "whitespace trimmed before expansion",
+			base:      "/project",
+			candidate: "  ~/policies/default.cedar  ",
+			want:      filepath.Join(os.Getenv("HOME"), "policies/default.cedar"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Set environment variables for this test
+			for k, v := range tt.envVars {
+				setEnv(t, k, v)
+			}
+
+			got, err := resolvePolicyPath(tt.base, tt.candidate)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("resolvePolicyPath() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err != nil {
+				return
+			}
+			if got != tt.want {
+				t.Errorf("resolvePolicyPath() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
