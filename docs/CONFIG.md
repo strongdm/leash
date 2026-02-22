@@ -13,7 +13,7 @@ claude = false
 
 [leash]
 # Global configuration
-target_image = "ubuntu:22.04"
+target_image = "myorg/leash-ubuntu:latest"
 policy_file = "~/leash/policies/default.cedar"
 
 [leash.envvars]
@@ -23,7 +23,7 @@ API_KEY = "secret"
 [projects."/absolute/path/to/project"]
 # Project scope overrides the global scope for the matching working directory.
 codex = true
-target_image = "node:20"
+target_image = "myorg/leash-node:20"
 policy_file = "./policies/project.cedar"
 
 [projects."/absolute/path/to/project".envvars]
