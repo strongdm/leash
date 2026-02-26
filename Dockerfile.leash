@@ -97,6 +97,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     dnsutils \
     iproute2 \
     iptables \
+    nftables \
     iputils-ping \
     less \
     libbpf1 \

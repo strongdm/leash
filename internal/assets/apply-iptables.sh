@@ -59,16 +59,24 @@ fi
 
 # Block target container from reaching leashd control plane on any interface.
 # This prevents a compromised agent from accessing the leashd API.
-# SECURITY: This is a REQUIRED security control - failure is fatal.
+# SECURITY: This is a REQUIRED security control - failure is fatal unless
+# LEASH_CGROUP_ISOLATION=optional is set (e.g. for Docker Desktop where
+# the kernel lacks xt_cgroup / nft socket cgroupv2 support).
 # Requires --cgroupns=host on the container to see host cgroup paths.
+CGROUP_ISOLATION=${LEASH_CGROUP_ISOLATION:-required}
+
 if [ -n "$TARGET_CGROUP" ] && [ -n "$LEASH_PORT" ]; then
     if ! ensure_rule -t filter -C OUTPUT -m cgroup --path "$TARGET_CGROUP" -p tcp --dport "$LEASH_PORT" -j REJECT; then
         if iptables_cmd -t filter -A OUTPUT -m cgroup --path "$TARGET_CGROUP" -p tcp --dport "$LEASH_PORT" -j REJECT --reject-with tcp-reset 2>&1; then
             echo "leash: blocked target cgroup $TARGET_CGROUP from reaching control plane port $LEASH_PORT"
-        else
+        elif [ "$CGROUP_ISOLATION" = "required" ]; then
             echo "leash: FATAL: could not apply cgroup-based control plane isolation" >&2
             echo "leash: This security control is required to prevent target container from accessing leashd API" >&2
+            echo "leash: Set LEASH_CGROUP_ISOLATION=optional to run without cgroup isolation" >&2
             exit 1
+        else
+            echo "leash: WARNING: cgroup-based control plane isolation unavailable (iptables); continuing without it" >&2
+            RULE_ERRORS=$((RULE_ERRORS + 1))
         fi
     fi
 fi

@@ -53,7 +53,7 @@ ensure_rule() {
     if nft_cmd list chain "$fam" "$tbl" "$chain" 2>/dev/null | grep -F "comment \"$comment\"" >/dev/null; then
         return 0
     fi
-    if ! nft_cmd add rule "$fam" "$tbl" "$chain" "$@" comment "$comment" 2>/dev/null; then
+    if ! nft_cmd add rule "$fam" "$tbl" "$chain" "$@" comment "\"$comment\"" 2>/dev/null; then
         echo "leash: WARNING: failed to add nftables rule $comment" >&2
         RULE_ERRORS=$((RULE_ERRORS + 1))
         return 1
@@ -85,17 +85,23 @@ ensure_rule inet leash out_route "leash:drop-quic" udp dport 443 drop
 # Uses inet family to cover both IPv4 and IPv6.
 # SECURITY: This is a REQUIRED security control - failure is fatal.
 # Requires --cgroupns=host on the container to see host cgroup paths.
+CGROUP_ISOLATION=${LEASH_CGROUP_ISOLATION:-required}
+
 if [ -n "$TARGET_CGROUP" ] && [ -n "$LEASH_PORT" ]; then
     ensure_chain inet leash out_filter { type filter hook output priority 0\; }
     # Check if rule already exists
     if nft_cmd list chain inet leash out_filter 2>/dev/null | grep -F "leash:block-control-plane" >/dev/null; then
         : # Rule already exists, nothing to do
-    elif nft_cmd add rule inet leash out_filter socket cgroupv2 level 1 "$TARGET_CGROUP" tcp dport $LEASH_PORT reject with tcp reset comment "leash:block-control-plane" 2>&1; then
+    elif nft_cmd add rule inet leash out_filter socket cgroupv2 level 1 "\"$TARGET_CGROUP\"" tcp dport $LEASH_PORT reject with tcp reset comment "\"leash:block-control-plane\"" 2>&1; then
         echo "leash: blocked target cgroup $TARGET_CGROUP from reaching control plane port $LEASH_PORT (nftables)"
-    else
+    elif [ "$CGROUP_ISOLATION" = "required" ]; then
         echo "leash: FATAL: could not apply cgroup-based control plane isolation (nftables)" >&2
         echo "leash: This security control is required to prevent target container from accessing leashd API" >&2
+        echo "leash: Set LEASH_CGROUP_ISOLATION=optional to run without cgroup isolation" >&2
         exit 1
+    else
+        echo "leash: WARNING: cgroup-based control plane isolation unavailable (nftables); continuing without it" >&2
+        RULE_ERRORS=$((RULE_ERRORS + 1))
     fi
 fi
 
