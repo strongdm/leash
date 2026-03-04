@@ -62,13 +62,25 @@ fi
 # SECURITY: This is a REQUIRED security control - failure is fatal.
 # Requires --cgroupns=host on the container to see host cgroup paths.
 if [ -n "$TARGET_CGROUP" ] && [ -n "$LEASH_PORT" ]; then
-    if ! ensure_rule -t filter -C OUTPUT -m cgroup --path "$TARGET_CGROUP" -p tcp --dport "$LEASH_PORT" -j REJECT; then
+    # Preferred: scope the block to the target container via cgroup matching.
+    if ! ensure_rule -t filter -C OUTPUT -m cgroup --path "$TARGET_CGROUP" -p tcp --dport "$LEASH_PORT" -j REJECT --reject-with tcp-reset; then
         if iptables_cmd -t filter -A OUTPUT -m cgroup --path "$TARGET_CGROUP" -p tcp --dport "$LEASH_PORT" -j REJECT --reject-with tcp-reset 2>&1; then
             echo "leash: blocked target cgroup $TARGET_CGROUP from reaching control plane port $LEASH_PORT"
         else
-            echo "leash: FATAL: could not apply cgroup-based control plane isolation" >&2
-            echo "leash: This security control is required to prevent target container from accessing leashd API" >&2
-            exit 1
+            # Fallback: some kernels (notably LinuxKit on Docker Desktop) lack xt_cgroup support.
+            # In that case, block ALL local processes in this network namespace from connecting
+            # to the control plane port. This preserves the security boundary at the cost of
+            # disallowing in-namespace clients.
+            echo "leash: WARNING: cgroup-based control plane isolation unavailable; blocking all local access to control plane port $LEASH_PORT" >&2
+            if ! ensure_rule -t filter -C OUTPUT -p tcp --dport "$LEASH_PORT" -j REJECT --reject-with tcp-reset; then
+                if iptables_cmd -t filter -A OUTPUT -p tcp --dport "$LEASH_PORT" -j REJECT --reject-with tcp-reset 2>&1; then
+                    echo "leash: blocked local access to control plane port $LEASH_PORT (fallback)"
+                else
+                    echo "leash: FATAL: could not apply control plane isolation (cgroup and fallback failed)" >&2
+                    echo "leash: This security control is required to prevent target container from accessing leashd API" >&2
+                    exit 1
+                fi
+            fi
         fi
     fi
 fi

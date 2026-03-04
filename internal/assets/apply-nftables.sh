@@ -53,7 +53,7 @@ ensure_rule() {
     if nft_cmd list chain "$fam" "$tbl" "$chain" 2>/dev/null | grep -F "comment \"$comment\"" >/dev/null; then
         return 0
     fi
-    if ! nft_cmd add rule "$fam" "$tbl" "$chain" "$@" comment "$comment" 2>/dev/null; then
+    if ! nft_cmd add rule "$fam" "$tbl" "$chain" "$@" comment "\"$comment\"" 2>/dev/null; then
         echo "leash: WARNING: failed to add nftables rule $comment" >&2
         RULE_ERRORS=$((RULE_ERRORS + 1))
         return 1
@@ -93,9 +93,18 @@ if [ -n "$TARGET_CGROUP" ] && [ -n "$LEASH_PORT" ]; then
     elif nft_cmd add rule inet leash out_filter socket cgroupv2 level 1 "$TARGET_CGROUP" tcp dport $LEASH_PORT reject with tcp reset comment "leash:block-control-plane" 2>&1; then
         echo "leash: blocked target cgroup $TARGET_CGROUP from reaching control plane port $LEASH_PORT (nftables)"
     else
-        echo "leash: FATAL: could not apply cgroup-based control plane isolation (nftables)" >&2
-        echo "leash: This security control is required to prevent target container from accessing leashd API" >&2
-        exit 1
+        # Fallback: some kernels (notably LinuxKit on Docker Desktop) lack nft_socket cgroupv2 support.
+        # In that case, block ALL local processes in this network namespace from connecting to
+        # the control plane port. This preserves the security boundary at the cost of disallowing
+        # in-namespace clients.
+        echo "leash: WARNING: cgroup-based control plane isolation unavailable (nftables); blocking all local access to control plane port $LEASH_PORT" >&2
+        if ensure_rule inet leash out_filter "leash:block-control-plane-fallback" tcp dport $LEASH_PORT reject with tcp reset; then
+            echo "leash: blocked local access to control plane port $LEASH_PORT (fallback nftables)"
+        else
+            echo "leash: FATAL: could not apply control plane isolation (nftables cgroup and fallback failed)" >&2
+            echo "leash: This security control is required to prevent target container from accessing leashd API" >&2
+            exit 1
+        fi
     fi
 fi
 
@@ -104,4 +113,3 @@ if [ "$RULE_ERRORS" -gt 0 ]; then
     echo "leash: WARNING: $RULE_ERRORS nftables rule(s) failed to apply (network interception may be incomplete)" >&2
 fi
 exit 0
-
