@@ -31,7 +31,7 @@ func (r *runner) initMountState(ctx context.Context, cwd string) error {
 	}
 
 	interactive := r.promptInteractive()
-	cfgData, err := configstore.Load()
+	cfgData, err := configstore.LoadWithOverlay(cwd)
 	if err != nil {
 		return fmt.Errorf("load leash config: %w", err)
 	}

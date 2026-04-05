@@ -896,7 +896,7 @@ func loadConfig(callerDir string, opts options) (config, map[string]configstore.
 		cfg.policyOverride = false
 	}
 
-	cfgData, err := configstore.Load()
+	cfgData, err := configstore.LoadWithOverlay(callerDir)
 	if err != nil {
 		return config{}, nil, fmt.Errorf("load leash config: %w", err)
 	}

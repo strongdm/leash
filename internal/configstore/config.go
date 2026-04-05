@@ -261,6 +261,83 @@ func boolPtr(v bool) *bool {
 	return &b
 }
 
+// Merge returns a new Config that combines base with overlay. Overlay values
+// take precedence: non-empty scalars replace base values, and maps are merged
+// with overlay keys overriding base keys.
+func Merge(base, overlay Config) Config {
+	out := base.Clone()
+
+	if strings.TrimSpace(overlay.TargetImage) != "" {
+		out.TargetImage = overlay.TargetImage
+	}
+
+	for cmd, value := range overlay.CommandVolumes {
+		if value != nil {
+			out.CommandVolumes[cmd] = boolPtr(*value)
+		}
+	}
+
+	for host, spec := range overlay.CustomVolumes {
+		out.CustomVolumes[host] = spec
+	}
+
+	for key, value := range overlay.EnvVars {
+		out.EnvVars[key] = value
+	}
+
+	for key, image := range overlay.ProjectTargetImages {
+		out.ProjectTargetImages[key] = image
+	}
+
+	for projectKey, settings := range overlay.ProjectCommandVolumes {
+		existing := out.ProjectCommandVolumes[projectKey]
+		if existing == nil {
+			existing = make(map[string]*bool)
+		}
+		for cmd, value := range settings {
+			if value != nil {
+				existing[cmd] = boolPtr(*value)
+			}
+		}
+		out.ProjectCommandVolumes[projectKey] = existing
+	}
+
+	for projectKey, specs := range overlay.ProjectCustomVolumes {
+		existing := out.ProjectCustomVolumes[projectKey]
+		if existing == nil {
+			existing = make(map[string]string)
+		}
+		for key, value := range specs {
+			existing[key] = value
+		}
+		out.ProjectCustomVolumes[projectKey] = existing
+	}
+
+	for projectKey, disables := range overlay.ProjectVolumeDisables {
+		existing := out.ProjectVolumeDisables[projectKey]
+		if existing == nil {
+			existing = make(map[string]bool)
+		}
+		for key, value := range disables {
+			existing[key] = value
+		}
+		out.ProjectVolumeDisables[projectKey] = existing
+	}
+
+	for projectKey, envs := range overlay.ProjectEnvVars {
+		existing := out.ProjectEnvVars[projectKey]
+		if existing == nil {
+			existing = make(map[string]string)
+		}
+		for key, value := range envs {
+			existing[key] = value
+		}
+		out.ProjectEnvVars[projectKey] = existing
+	}
+
+	return out
+}
+
 // SetGlobalTargetImage records the default container image for leash-managed sessions.
 func (c *Config) SetGlobalTargetImage(image string) {
 	c.TargetImage = strings.TrimSpace(image)

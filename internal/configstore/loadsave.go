@@ -222,6 +222,32 @@ func decodeConfig(data []byte, path string, cfg *Config) error {
 	return nil
 }
 
+// LoadWithOverlay loads the global XDG configuration and then, if a
+// .leash.toml file exists in dir, merges it on top. The local file values
+// take precedence over the global config.
+func LoadWithOverlay(dir string) (Config, error) {
+	base, err := Load()
+	if err != nil {
+		return base, err
+	}
+	if strings.TrimSpace(dir) == "" {
+		return base, nil
+	}
+	localPath := GetLocalConfigPath(dir)
+	data, err := os.ReadFile(localPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return base, nil
+	}
+	if err != nil {
+		return base, fmt.Errorf("read local config %s: %w", localPath, err)
+	}
+	overlay := New()
+	if err := decodeConfig(data, localPath, &overlay); err != nil {
+		return base, err
+	}
+	return Merge(base, overlay), nil
+}
+
 // Save atomically writes the configuration to disk.
 func Save(cfg Config) error {
 	cfg.ensureInitialized()

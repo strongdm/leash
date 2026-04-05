@@ -9,6 +9,11 @@ import (
 
 const configFileName = "config.toml"
 
+// LocalConfigFileName is the name of the project-local override file that
+// users can place in their working directory to layer additional configuration
+// (e.g. secrets) on top of the global XDG config.
+const LocalConfigFileName = ".leash.toml"
+
 // GetConfigPath resolves the leash configuration directory and file path using
 // XDG rules with a fallback to ~/.config/leash/config.toml.
 func GetConfigPath() (string, string, error) {
@@ -37,6 +42,12 @@ func GetConfigPath() (string, string, error) {
 	base = filepath.Join(home, ".config")
 	dir := buildConfigDir(base)
 	return dir, filepath.Join(dir, configFileName), nil
+}
+
+// GetLocalConfigPath returns the path to the project-local override file
+// within the given directory.
+func GetLocalConfigPath(dir string) string {
+	return filepath.Join(dir, LocalConfigFileName)
 }
 
 func buildConfigDir(base string) string {
