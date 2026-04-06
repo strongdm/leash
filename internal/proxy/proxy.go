@@ -512,8 +512,14 @@ func (p *MITMProxy) handleTransparentHTTPS(clientConn net.Conn, originalDest str
 
 	var actualHostname string
 
-	// Wrap the connection with TLS using dynamic certificate generation
+	// Wrap the connection with TLS using dynamic certificate generation.
+	// NextProtos advertises both h2 and http/1.1 so that clients using ALPN
+	// (e.g. the Cursor CLI, gRPC) complete the handshake successfully. After
+	// the handshake we inspect NegotiatedProtocol and tunnel h2 connections
+	// transparently instead of attempting HTTP/1.1 MITM (which would fail with
+	// "malformed HTTP request/response" errors on the HTTP/2 binary framing).
 	tlsConfig := &tls.Config{
+		NextProtos: []string{"h2", "http/1.1"},
 		GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 			// Use the SNI (Server Name Indication) to get the correct hostname
 			actualHostname = hello.ServerName
@@ -537,6 +543,15 @@ func (p *MITMProxy) handleTransparentHTTPS(clientConn net.Conn, originalDest str
 	// Handle the TLS connection
 	if err := tlsConn.Handshake(); err != nil {
 		log.Printf("TLS handshake error for %s: %v", originalDest, err)
+		return
+	}
+
+	// If the client negotiated HTTP/2 via ALPN, tunnel the connection
+	// transparently to the origin. Full h2 MITM (framing, HPACK, flow control)
+	// is complex; a transparent tunnel preserves all h2 semantics while still
+	// enforcing the connect policy that was already checked above.
+	if tlsConn.ConnectionState().NegotiatedProtocol == "h2" {
+		p.tunnelH2(tlsConn, originalDest, actualHostname)
 		return
 	}
 
@@ -633,6 +648,68 @@ func (p *MITMProxy) handleTransparentHTTPS(clientConn net.Conn, originalDest str
 		// Log request to logfmt
 		p.logRequest("https", host, port, path, query, authHeader, responseCode, forwardErr)
 	}
+}
+
+// tunnelH2 transparently tunnels an HTTP/2 connection to the origin without
+// MITM. TLS is terminated on the client side (so the Leash CA cert is still
+// presented to the client), then a fresh TLS connection is opened to the origin
+// with h2 in NextProtos, and the two sides are piped together.
+//
+// Policy enforcement (connect allow/deny) has already happened in
+// handleTransparentHTTPS before this function is called.
+func (p *MITMProxy) tunnelH2(clientConn net.Conn, originalDest, targetHostname string) {
+	targetHost := originalDest
+	if targetHostname != "" {
+		_, port, err := net.SplitHostPort(originalDest)
+		if err == nil {
+			targetHost = net.JoinHostPort(targetHostname, port)
+		}
+	}
+
+	markedDialer := createMarkedDialer()
+	rawConn, err := markedDialer.DialContext(context.Background(), "tcp", targetHost)
+	if err != nil {
+		log.Printf("h2 tunnel: failed to connect to %s: %v", targetHost, err)
+		return
+	}
+	defer rawConn.Close()
+
+	serverName := targetHostname
+	if serverName == "" {
+		if h, _, err := net.SplitHostPort(targetHost); err == nil {
+			serverName = strings.Trim(h, "[]")
+		}
+	}
+
+	originConn := tls.Client(rawConn, &tls.Config{
+		ServerName: serverName,
+		NextProtos: []string{"h2", "http/1.1"},
+	})
+	if err := originConn.Handshake(); err != nil {
+		log.Printf("h2 tunnel: TLS handshake to origin %s failed: %v", targetHost, err)
+		return
+	}
+	defer originConn.Close()
+
+	log.Printf("h2 tunnel: %s <-> %s (origin negotiated: %s)",
+		clientConn.RemoteAddr(), targetHost,
+		originConn.ConnectionState().NegotiatedProtocol)
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		io.Copy(originConn, clientConn) //nolint:errcheck
+		originConn.CloseWrite()
+	}()
+	go func() {
+		defer wg.Done()
+		io.Copy(clientConn, originConn) //nolint:errcheck
+		if tc, ok := clientConn.(*tls.Conn); ok {
+			tc.CloseWrite()
+		}
+	}()
+	wg.Wait()
 }
 
 func (p *MITMProxy) forwardTransparentHTTPS(clientConn net.Conn, req *http.Request, targetHost string, mcpCtx *mcpRequestContext) (int, string, string, error) {
