@@ -2092,6 +2092,7 @@ func (r *runner) launchLeashContainer(ctx context.Context, cgroupPath string) er
 		"--privileged",
 		"--cap-add", "NET_ADMIN",
 		"--cgroupns=host", // Use host cgroup namespace for iptables cgroup matching
+		"--pid", fmt.Sprintf("container:%s", r.cfg.targetContainer),
 		"--network", fmt.Sprintf("container:%s", r.cfg.targetContainer),
 		"-v", "/sys/fs/cgroup:/sys/fs/cgroup:ro",
 		"-v", r.internalBindMountSpec(r.cfg.logDir, "/log", ""),

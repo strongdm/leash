@@ -6,8 +6,22 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"runtime"
+	"strings"
 	"sync"
 	"syscall"
+)
+
+type enforcementBackend interface {
+	UpdatePolicies(*PolicySet) error
+	Run() error
+}
+
+type backendKind string
+
+const (
+	backendBPF      backendKind = "bpf"
+	backendFanotify backendKind = "fanotify"
 )
 
 // LSMManager manages multiple LSM programs and handles policy reloading
@@ -21,6 +35,10 @@ type LSMManager struct {
 	connectLsm *ConnectLsm
 
 	reloadMutex sync.RWMutex
+	started     bool
+	backend     enforcementBackend
+	backendKind backendKind
+	policies    *PolicySet
 }
 
 func NewLSMManager(cgroupPath string, logger *SharedLogger) *LSMManager {
@@ -31,6 +49,28 @@ func NewLSMManager(cgroupPath string, logger *SharedLogger) *LSMManager {
 }
 
 func (m *LSMManager) LoadAndStart() error {
+	m.reloadMutex.Lock()
+	defer m.reloadMutex.Unlock()
+
+	if !m.started {
+		backend, kind, err := m.initializeBackendLocked()
+		if err != nil {
+			return err
+		}
+		m.backend = backend
+		m.backendKind = kind
+		m.started = true
+		if m.policies != nil {
+			if err := m.backend.UpdatePolicies(clonePolicySet(m.policies)); err != nil {
+				return err
+			}
+		}
+	}
+
+	if m.backendKind == backendFanotify {
+		return m.backend.Run()
+	}
+
 	// Set up signal handling for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
@@ -44,6 +84,32 @@ func (m *LSMManager) LoadAndStart() error {
 	}
 
 	return nil
+}
+
+func (m *LSMManager) initializeBackendLocked() (enforcementBackend, backendKind, error) {
+	if runtime.GOOS != "linux" {
+		return nil, "", fmt.Errorf("LSM manager is only supported on linux")
+	}
+
+	if hostSupportsBPFLSM() {
+		fmt.Printf("Using BPF LSM enforcement backend\n")
+		return newBPFBackend(m), backendBPF, nil
+	}
+
+	backend, err := newFanotifyBackend(m.cgroupPath, m.logger)
+	if err != nil {
+		return nil, "", err
+	}
+	fmt.Printf("Using fanotify enforcement backend\n")
+	return backend, backendFanotify, nil
+}
+
+func hostSupportsBPFLSM() bool {
+	data, err := os.ReadFile("/sys/kernel/security/lsm")
+	if err != nil {
+		return false
+	}
+	return strings.Contains(strings.TrimSpace(string(data)), "bpf")
 }
 
 func (m *LSMManager) updateOpenLSM(policies *PolicySet) error {
@@ -158,14 +224,46 @@ func (m *LSMManager) UpdateRuntimeRules(policies *PolicySet) error {
 	m.reloadMutex.Lock()
 	defer m.reloadMutex.Unlock()
 
-	if err := m.updateOpenLSM(policies); err != nil {
+	m.policies = clonePolicySet(policies)
+	if !m.started {
+		return nil
+	}
+	return m.backend.UpdatePolicies(clonePolicySet(policies))
+}
+
+func clonePolicySet(src *PolicySet) *PolicySet {
+	if src == nil {
+		return &PolicySet{}
+	}
+	return &PolicySet{
+		Open:                   append([]PolicyRule(nil), src.Open...),
+		Exec:                   append([]PolicyRule(nil), src.Exec...),
+		Connect:                append([]PolicyRule(nil), src.Connect...),
+		MCP:                    append([]MCPPolicyRule(nil), src.MCP...),
+		ConnectDefaultAllow:    src.ConnectDefaultAllow,
+		ConnectDefaultExplicit: src.ConnectDefaultExplicit,
+	}
+}
+
+type bpfBackend struct {
+	manager *LSMManager
+}
+
+func newBPFBackend(manager *LSMManager) *bpfBackend {
+	return &bpfBackend{manager: manager}
+}
+
+func (b *bpfBackend) UpdatePolicies(policies *PolicySet) error {
+	if err := b.manager.updateOpenLSM(policies); err != nil {
 		return err
 	}
-	if err := m.updateExecLSM(policies); err != nil {
+	if err := b.manager.updateExecLSM(policies); err != nil {
 		return err
 	}
-	if err := m.updateConnectLSM(policies); err != nil {
+	if err := b.manager.updateConnectLSM(policies); err != nil {
 		return err
 	}
 	return nil
 }
+
+func (b *bpfBackend) Run() error { return nil }
