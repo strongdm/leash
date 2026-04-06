@@ -1,4 +1,4 @@
-# Leash Configuration Volumes
+# Leash Configuration
 
 Leash stores persistent configuration at `$XDG_CONFIG_HOME/leash/config.toml`, falling back to `~/.config/leash/config.toml` when no XDG override is present. The file controls whether host developer configuration directories (for example `~/.codex`) are mounted into the container automatically.
 
@@ -11,9 +11,24 @@ codex = true
 claude = false
 "~/devtools" = "/workspace/devtools:ro"
 
+[leash]
+# Global configuration
+target_image = "myorg/leash-ubuntu:latest"
+policy_file = "~/leash/policies/default.cedar"
+
+[leash.envvars]
+# Global environment variables
+API_KEY = "secret"
+
 [projects."/absolute/path/to/project"]
 # Project scope overrides the global scope for the matching working directory.
 codex = true
+target_image = "myorg/leash-node:20"
+policy_file = "./policies/project.cedar"
+
+[projects."/absolute/path/to/project".envvars]
+# Project-specific environment variables
+NODE_ENV = "development"
 
 [projects."/absolute/path/to/project".volumes]
 "./.dev" = "/workspace/dev:rw"
@@ -72,6 +87,30 @@ For each subcommand, Leash maps the host directory `~/.<cmd>` to `/root/.<cmd>` 
 | `~/.local/share/opencode/log` | `/root/.local/share/opencode/log` | `rw` | Logs directory |
 | `~/.local/share/opencode/snapshot` | `/root/.local/share/opencode/snapshot` | `rw` | Snapshots directory |
 | `~/.local/share/opencode/storage` | `/root/.local/share/opencode/storage` | `rw` | Storage directory (excludes `bin` to avoid host/guest arch clashes) |
+
+## Policy Files
+
+Leash can load Cedar policy files from paths specified in configuration.
+
+- **Global scope** (`[leash.policy_file]`) applies to every session unless overridden.
+- **Project scope** (`[projects."/abs/path".policy_file]`) overrides the global setting for that directory.
+- **Precedence**: CLI flag `--policy` takes highest priority, followed by `LEASH_POLICY_FILE` environment variable, then project-specific config, then global config.
+- Policy file paths accept `~` expansion, environment variables, and (for project entries) relative paths.
+- When no policy is specified, Leash generates a permissive runtime policy automatically.
+
+```toml
+[leash]
+policy_file = "~/leash/policies/default.cedar"
+
+[projects."/Users/alice/src/app"]
+policy_file = "./policies/app-policy.cedar"
+
+[projects."${HOME}/src/service"]
+policy_file = "${XDG_CONFIG_HOME}/leash/policies/service.cedar"
+```
+
+For detailed information on writing Cedar policy files, see [design/CEDAR.md](design/CEDAR.md) — this reference is particularly useful when working with AI coding agents to generate new policy files.
+
 
 ## Prompt Workflow
 

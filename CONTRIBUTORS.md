@@ -18,9 +18,10 @@ Open source thrives because of the efforts of people like you 💚
 
 A huge thank you to everyone who has contributed code, docs, ideas, testing, and feedback:
 
-| Name          | GitHub                           |
-|---------------|----------------------------------|
-| Jesse Vincent | [@obra](https://github.com/obra) |
+| Name          | GitHub                               |
+|---------------|--------------------------------------|
+| Jesse Vincent | [@obra](https://github.com/obra)     |
+| Phoenix Zerin | [@merphx](https://github.com/merphx) |
 
 (Generated in part via `git shortlog` and [All Contributors](https://allcontributors.org/).)
 
