@@ -138,40 +138,14 @@ body {
     z-index: 0;
   }
   
-  /* Gradient overlay */
-  body::after {
-    content: '';
-    position: fixed;
-    inset: 0;
-    background: radial-gradient(
-      circle at 30% 40%,
-      hsl(var(--cyan-glow) / 0.05) 0%,
-      transparent 50%
-    ),
-    radial-gradient(
-      circle at 70% 60%,
-      hsl(var(--neon-purple) / 0.05) 0%,
-      transparent 50%
-    );
-    animation: gradient-shift 15s ease-in-out infinite;
-    pointer-events: none;
-    z-index: 0;
-  }
-  
   /* Background animations */
   @keyframes grid-move {
     0% { transform: translate(0, 0); }
     100% { transform: translate(50px, 50px); }
   }
 
-  @keyframes gradient-shift {
-    0%, 100% { opacity: 0.3; transform: scale(1); }
-    50% { opacity: 0.6; transform: scale(1.1); }
-  }
-
   @media (prefers-reduced-motion: reduce) {
-    body::before,
-    body::after {
+    body::before {
       animation: none;
     }
   }

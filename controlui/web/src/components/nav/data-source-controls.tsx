@@ -32,20 +32,17 @@ export default function DataSourceControls({ activeTab, onTabChange }: Props) {
   }, [mode, status]);
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-cyan-500/30 bg-slate-900/40 px-4 py-2 backdrop-blur">
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-slate-900/60 px-4 py-2">
       <div className="flex items-center gap-3">
-        <div className="relative">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/logo.svg"
-            alt="Leash Logo"
-            width={36}
-            height={36}
-            className="size-9 opacity-90"
-            style={{ filter: 'brightness(0) invert(1) sepia(1) saturate(5) hue-rotate(175deg)' }}
-          />
-          <div className="absolute inset-0 size-9 bg-cyan-400 blur-lg opacity-40" />
-        </div>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/logo.svg"
+          alt="Leash Logo"
+          width={36}
+          height={36}
+          className="size-9 opacity-90"
+          style={{ filter: 'brightness(0) invert(1) sepia(1) saturate(5) hue-rotate(175deg)' }}
+        />
         <div>
           <h1
             className="text-2xl font-bold text-transparent bg-clip-text leading-tight"
@@ -68,9 +65,9 @@ export default function DataSourceControls({ activeTab, onTabChange }: Props) {
           </h1>
           <div className="text-[10px] text-cyan-400/80 tracking-[0.15em] uppercase font-medium">AI Agent Visibility and Control</div>
         </div>
-        <div className="ml-3 border-l border-cyan-500/30 pl-3 flex items-center gap-2">
+        <div className="ml-3 border-l border-border pl-3 flex items-center gap-2">
           <Tabs value={mode} onValueChange={(value) => setMode(value as "sim" | "live")}>
-            <TabsList className="bg-slate-900/50 border border-cyan-500/30">
+            <TabsList className="bg-slate-900/50 border border-border">
               <TabsTrigger value="sim">Simulated</TabsTrigger>
               <TabsTrigger value="live">Live</TabsTrigger>
             </TabsList>
@@ -89,7 +86,7 @@ export default function DataSourceControls({ activeTab, onTabChange }: Props) {
       <div className="flex items-center gap-3">
         {activeTab && onTabChange && (
           <Tabs value={activeTab} onValueChange={(v) => onTabChange(v as PageTab)}>
-            <TabsList className="bg-slate-900/50 border border-cyan-500/30">
+            <TabsList className="bg-slate-900/50 border border-border">
               <TabsTrigger value="events">Events</TabsTrigger>
               <TabsTrigger value="policy">Policy</TabsTrigger>
             </TabsList>

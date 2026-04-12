@@ -664,17 +664,17 @@ export function ActionsStream({ instanceId, onPolicyMutated }: { instanceId?: st
           placeholder="Filter by name/id…"
           aria-label="Filter events"
           autoComplete="off"
-          className="max-w-sm bg-slate-900/50 border-cyan-500/30 text-cyan-300 placeholder:text-cyan-400/50"
+          className="max-w-sm bg-slate-900/50 border-border text-cyan-300 placeholder:text-muted-foreground"
         />
         <Tabs value={allowed} onValueChange={(v: string) => setAllowed(v as "all" | "allowed" | "denied")}>
-          <TabsList className="bg-slate-900/50 border-cyan-500/30">
+          <TabsList className="bg-slate-900/50 border-border">
             <TabsTrigger value="all">All</TabsTrigger>
             <TabsTrigger value="allowed">Allowed</TabsTrigger>
             <TabsTrigger value="denied">Denied</TabsTrigger>
           </TabsList>
         </Tabs>
         <Tabs value={type} onValueChange={(v: string) => setType(isFilterType(v) ? v : "all") }>
-            <TabsList className="overflow-x-auto bg-slate-900/50 border-cyan-500/30">
+            <TabsList className="overflow-x-auto bg-slate-900/50 border-border">
               <TabsTrigger value="all">Any</TabsTrigger>
               <TabsTrigger value="file/open">file/open</TabsTrigger>
               <TabsTrigger value="file/write">file/write</TabsTrigger>
@@ -683,7 +683,7 @@ export function ActionsStream({ instanceId, onPolicyMutated }: { instanceId?: st
               <TabsTrigger value="mcp">mcp</TabsTrigger>
             </TabsList>
           </Tabs>
-        <Badge variant="secondary" className="h-9 bg-cyan-500/20 text-cyan-300 border-cyan-500/30">
+        <Badge variant="secondary" className="h-9 border border-border text-muted-foreground">
           {summaryLabel}
         </Badge>
         {!isLive && (
@@ -695,39 +695,17 @@ export function ActionsStream({ instanceId, onPolicyMutated }: { instanceId?: st
             Resume{newSincePause > 0 ? ` (${newSincePause} new)` : ""}
           </button>
         )}
-        {/* Empty-state guidance */}
         {actions.length === 0 && (
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="inline-flex h-6 items-center justify-center rounded-md border border-cyan-500/40 bg-slate-950/80 px-2 text-xs font-semibold text-cyan-200">
-                  ?
-                </span>
-              </TooltipTrigger>
-              <TooltipContent hideArrow className="max-w-xs space-y-1 border border-cyan-500/40 bg-slate-950/90 text-cyan-100 shadow-[0_0_12px_rgba(6,182,212,0.25)]">
-                <p>No actions yet. If you expect live data:</p>
-                <ul className="list-disc space-y-1 pl-4 text-cyan-100/80">
-                  <li>Use the Data Source toggle above and switch to Live.</li>
-                  <li>Confirm the WebSocket URL shows ws(s)://host:18080/api.</li>
-                  <li>Generate activity (open a file, run a command, or make an HTTP request).</li>
-                </ul>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          <span className="text-xs text-muted-foreground">No events yet — switch to Live or generate activity.</span>
         )}
       </div>
 
       <TooltipProvider>
         <div
           ref={paneRef}
-          className="relative flex flex-col overflow-hidden rounded-lg border border-cyan-500/30 bg-slate-900/50 backdrop-blur"
+          className="relative flex flex-col overflow-hidden rounded-lg border border-border bg-slate-900/60"
           style={{ minHeight: MIN_EVENTS_PANE_HEIGHT, height: paneHeight ?? undefined }}
         >
-          {/* Header glow effect */}
-          <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-cyan-400 to-transparent opacity-50" />
-
-
-
           <div
             ref={scrollContainerRef}
             data-testid="actions-scroll-area"
@@ -750,7 +728,7 @@ export function ActionsStream({ instanceId, onPolicyMutated }: { instanceId?: st
                 <col className="w-[80px]" />
                 <col className="w-[44px]" />
               </colgroup>
-              <thead className="border-b border-cyan-500/20 bg-slate-900 sticky top-0 z-10">
+              <thead className="border-b border-border bg-slate-900 sticky top-0 z-10">
                 <tr>
                   <th className="p-0" />
                   <th className="text-left py-2.5 px-2.5 text-cyan-400 font-medium uppercase text-[11px] tracking-wider">
@@ -808,8 +786,8 @@ export function ActionsStream({ instanceId, onPolicyMutated }: { instanceId?: st
           </div>
 
           {/* Bottom status bar */}
-          <div className="flex-none px-3 py-2 bg-slate-900/80 border-t border-cyan-500/20 flex items-center justify-between">
-            <div className="flex items-center gap-4 text-[10px] text-cyan-400/50 font-mono uppercase">
+          <div className="flex-none px-3 py-2 bg-slate-900/80 border-t border-border flex items-center justify-between">
+            <div className="flex items-center gap-4 text-xs text-muted-foreground font-mono">
               {!isLive && <span className="text-amber-400">Paused</span>}
               <span>Total: {actionSummary.total}</span>
               <span className="text-green-400">
