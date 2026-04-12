@@ -157,12 +157,12 @@ export default function CedarEditor({ showHeader = true }: Props) {
   return (
     <section className="space-y-3">
       {showHeader && (
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-slate-900/60 px-4 py-2.5">
           <div>
             <label htmlFor="cedar-editor" className="block text-sm font-semibold text-cyan-300 tracking-wide">
               Policy Editor
             </label>
-            <p className="text-xs text-slate-300/80">Edit and apply Cedar policy to this running instance.</p>
+            <p className="text-xs text-muted-foreground">Edit and apply Cedar policy to this running instance.</p>
           </div>
           <TooltipProvider>
             <div className="flex items-center gap-2">
@@ -197,7 +197,7 @@ export default function CedarEditor({ showHeader = true }: Props) {
                 </TooltipTrigger>
                 <TooltipContent>Download policy</TooltipContent>
               </Tooltip>
-              <Button size="sm" variant="outline" className="border-cyan-500/40 text-cyan-200 hover:bg-cyan-500/20" onClick={startPermissive}>
+              <Button size="sm" variant="outline" className="border-border text-cyan-200 hover:bg-cyan-500/20" onClick={startPermissive}>
                 Start Permissive
               </Button>
             </div>
