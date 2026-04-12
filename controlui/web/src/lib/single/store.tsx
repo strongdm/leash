@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState } from "react";
+import React, { createContext, useContext, useMemo, useState } from "react";
 
 export type SingleMode = "record" | "shadow" | "enforce";
 
@@ -22,16 +22,10 @@ export function SingleProvider({ children }: { children: React.ReactNode }) {
   const [paused, setPaused] = useState(false);
   const [profile, setProfile] = useState<string | null>("Developer Default");
   const [prompt, setPrompt] = useState<SingleState["prompt"]>(null);
-  const value: SingleState = {
-    mode,
-    setMode,
-    paused,
-    setPaused,
-    profile,
-    setProfile,
-    prompt,
-    setPrompt,
-  };
+  const value = useMemo<SingleState>(
+    () => ({ mode, setMode, paused, setPaused, profile, setProfile, prompt, setPrompt }),
+    [mode, paused, profile, prompt],
+  );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

@@ -67,8 +67,8 @@ export default function PolicyBlockCard({ line, onRemoved }: { line: PolicyLine;
       <div className={textClass} title={line.humanized}>
         {line.humanized}
       </div>
-      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-        <TooltipProvider>
+      <TooltipProvider>
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -84,8 +84,6 @@ export default function PolicyBlockCard({ line, onRemoved }: { line: PolicyLine;
               Copy Cedar
             </TooltipContent>
           </Tooltip>
-        </TooltipProvider>
-        <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -102,8 +100,8 @@ export default function PolicyBlockCard({ line, onRemoved }: { line: PolicyLine;
               Remove
             </TooltipContent>
           </Tooltip>
-        </TooltipProvider>
-      </div>
+        </div>
+      </TooltipProvider>
     </div>
   );
 }

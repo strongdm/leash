@@ -7,7 +7,7 @@ import { timeAgo } from "@/lib/time";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Network, FileText, Terminal, List, Globe, Shield, Clock, Database, MessageSquare, Bell, Power, Check, X, Download } from "lucide-react";
+import { Network, FileText, Terminal, List, Globe, Shield, Clock, Database, MessageSquare, Bell, Power, Check, Plus, X, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { usePolicyBlocksContext } from "@/lib/policy/policy-blocks-context";
@@ -178,18 +178,14 @@ const ActionRow = memo(({
       <td className="p-2.5 whitespace-nowrap align-middle">
         {action.allowed ? (
           <div className="flex items-center gap-2">
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-green-400">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-            </span>
+            <span className="inline-flex h-2 w-2 rounded-full bg-green-400" />
             <span className="text-xs uppercase tracking-wide font-medium text-green-400">
               Allowed
             </span>
           </div>
         ) : (
           <div className="flex items-center gap-2">
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-red-400">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-            </span>
+            <span className="inline-flex h-2 w-2 rounded-full bg-red-400" />
             <span className="text-xs uppercase tracking-wide font-medium text-red-400">
               Denied
             </span>
@@ -217,7 +213,7 @@ const ActionRow = memo(({
                 onClick={() => onAddPolicy(action, "permit")}
                 disabled={isPending || (action.type === "mcp/call" && !action.tool)}
               >
-                {isAdded ? <Check className="size-4" /> : <Check className="size-4" />}
+                {isAdded ? <Check className="size-4" /> : <Plus className="size-4" />}
               </Button>
             </TooltipTrigger>
             <TooltipContent>
