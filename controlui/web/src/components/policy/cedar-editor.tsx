@@ -228,15 +228,12 @@ export default function CedarEditor({ showHeader = true }: Props) {
         <div className="rounded-md border border-red-500/30 bg-red-950/30 p-2">
           <div className="text-xs font-semibold text-red-300 mb-1">Lint errors ({lintErrors.length})</div>
           <ul className="list-disc ml-4 space-y-0.5">
-            {lintErrors.slice(0, 5).map((issue, idx) => (
+            {lintErrors.map((issue, idx) => (
               <li key={idx} className="text-[11px] text-red-200/90">
                 <span className="font-mono text-red-300">{issue.code}</span>: {issue.message}
                 {issue.suggestion && <span className="text-slate-300/80"> — {issue.suggestion}</span>}
               </li>
             ))}
-            {lintErrors.length > 5 && (
-              <li className="text-[11px] text-red-200/80">...and {lintErrors.length - 5} more</li>
-            )}
           </ul>
         </div>
       )}
@@ -301,15 +298,12 @@ export default function CedarEditor({ showHeader = true }: Props) {
               <div className="rounded-md border border-red-500/30 bg-red-950/30 p-2">
                 <div className="text-xs font-semibold text-red-300 mb-1">Lint errors ({confirm.issues.length})</div>
                 <ul className="list-disc ml-4 space-y-1 max-h-40 overflow-auto">
-                  {confirm.issues.slice(0, 5).map((issue, idx) => (
+                  {confirm.issues.map((issue, idx) => (
                     <li key={idx} className="text-[11px] text-red-200/90">
                       <span className="font-mono text-red-300">{issue.code}</span>: {issue.message}
                       {issue.suggestion && <span className="text-slate-300/80"> — {issue.suggestion}</span>}
                     </li>
                   ))}
-                  {confirm.issues.length > 5 && (
-                    <li className="text-[11px] text-red-200/80">...and {confirm.issues.length - 5} more</li>
-                  )}
                 </ul>
               </div>
             )}
