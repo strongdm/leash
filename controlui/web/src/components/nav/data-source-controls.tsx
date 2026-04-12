@@ -65,23 +65,25 @@ export default function DataSourceControls({ activeTab, onTabChange }: Props) {
           </h1>
           <div className="text-[10px] text-cyan-400/80 tracking-[0.15em] uppercase font-medium">AI Agent Visibility and Control</div>
         </div>
-        <div className="ml-3 border-l border-border pl-3 flex items-center gap-2">
-          <Tabs value={mode} onValueChange={(value) => setMode(value as "sim" | "live")}>
-            <TabsList className="bg-slate-900/50 border border-border">
-              <TabsTrigger value="sim">Simulated</TabsTrigger>
-              <TabsTrigger value="live">Live</TabsTrigger>
-            </TabsList>
-          </Tabs>
-          <Badge variant="secondary" className={`h-9 border ${statusBadge.tone}`}>
-            {statusBadge.label}
-          </Badge>
-          {mode === "live" && wsUrl && (
-            <span className="text-[10px] font-mono text-cyan-400/50 max-w-[200px] truncate">{wsUrl}</span>
-          )}
-          {mode === "live" && error && (
-            <span className="text-[10px] text-red-400">{error}</span>
-          )}
-        </div>
+        {activeTab !== "policy" && (
+          <div className="ml-3 border-l border-border pl-3 flex items-center gap-2">
+            <Tabs value={mode} onValueChange={(value) => setMode(value as "sim" | "live")}>
+              <TabsList className="bg-slate-900/50 border border-border">
+                <TabsTrigger value="sim">Simulated</TabsTrigger>
+                <TabsTrigger value="live">Live</TabsTrigger>
+              </TabsList>
+            </Tabs>
+            <Badge variant="secondary" className={`h-9 border ${statusBadge.tone}`}>
+              {statusBadge.label}
+            </Badge>
+            {mode === "live" && wsUrl && (
+              <span className="text-[10px] font-mono text-cyan-400/50 max-w-[200px] truncate">{wsUrl}</span>
+            )}
+            {mode === "live" && error && (
+              <span className="text-[10px] text-red-400">{error}</span>
+            )}
+          </div>
+        )}
       </div>
       <div className="flex items-center gap-3">
         {activeTab && onTabChange && (
