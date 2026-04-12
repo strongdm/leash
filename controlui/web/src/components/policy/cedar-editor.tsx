@@ -205,7 +205,7 @@ export default function CedarEditor({ showHeader = true }: Props) {
         </div>
       )}
 
-      <div className="relative border border-cyan-500/30 rounded-md overflow-hidden bg-slate-950/60">
+      <div className="relative border border-border rounded-md overflow-hidden bg-slate-900/60">
         {isEditorEmpty && (
           <span className="pointer-events-none absolute left-[60px] top-3 text-xs text-slate-400/70 z-10">
             {'permit (principal, action == Action::"NetworkConnect", resource == Host::"api.example.com");'}
