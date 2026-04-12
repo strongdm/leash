@@ -157,12 +157,6 @@ body {
     }
   }
 
-  /* Skip layout/paint for offscreen action table rows */
-  .action-row {
-    content-visibility: auto;
-    contain-intrinsic-size: 0 44px;
-  }
-
   /* Cedar policy editor — Prism token colors */
   .cedar-editor-root .token.keyword { color: hsl(var(--cyan-bright)); font-weight: 600; }
   .cedar-editor-root .token.entity { color: hsl(var(--neon-green)); }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useCallback, useEffect, memo, useRef } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { useSimulation } from "@/lib/mock/sim";
 import type { Action, ActionType } from "@/lib/mock/types";
 import { timeAgo } from "@/lib/time";
@@ -165,7 +166,7 @@ const ActionRow = memo(({
   const repeats = action.repeatCount ?? 1;
 
   return (
-    <tr className="action-row border-b border-cyan-500/10 transition-all duration-500 hover:bg-cyan-500/5">
+    <tr className="border-b border-cyan-500/10 hover:bg-cyan-500/5">
       <td className="p-3 align-middle text-cyan-300/60 text-xs">{timeAgo(action.ts)}</td>
       <td className="p-2.5 align-middle whitespace-nowrap">
         <span className="inline-flex items-center gap-1 text-slate-300">
@@ -469,7 +470,7 @@ export function ActionsStream({ instanceId, onPolicyMutated }: { instanceId?: st
     v === "mcp/init" ||
     v === "mcp/notify";
 
-  const { actions, filteredTotal } = useMemo(() => {
+  const actions = useMemo(() => {
     const filtered = state.recentActions.filter((action) => {
       if (instanceId && action.instanceId !== instanceId) {
         return false;
@@ -495,9 +496,7 @@ export function ActionsStream({ instanceId, onPolicyMutated }: { instanceId?: st
       }
       return true;
     });
-    const sorted = filtered.slice().reverse();
-    const limited = sorted.slice(0, 50);
-    return { actions: limited, filteredTotal: sorted.length };
+    return filtered.slice().reverse();
   }, [state.recentActions, instanceId, allowed, type, debouncedText]);
 
   const actionSummary = useMemo(() => {
@@ -516,9 +515,17 @@ export function ActionsStream({ instanceId, onPolicyMutated }: { instanceId?: st
     return { total, allowed: allowedCount, denied: deniedCount };
   }, [actions]);
 
-  const summaryLabel = filteredTotal <= actions.length
-    ? `${actions.length} shown`
-    : `${actions.length} of ${filteredTotal} shown`;
+  const summaryLabel = actions.length === state.recentActions.length
+    ? `${actions.length} events`
+    : `${actions.length} of ${state.recentActions.length} events`;
+
+  const ROW_HEIGHT = 44;
+  const rowVirtualizer = useVirtualizer({
+    count: actions.length,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 15,
+  });
 
   const [addedId, setAddedId] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -759,15 +766,34 @@ export function ActionsStream({ instanceId, onPolicyMutated }: { instanceId?: st
                 </tr>
               </thead>
               <tbody>
-                {actions.map((action) => (
-                  <ActionRow
-                    key={action.id}
-                    action={action}
-                    isPending={pendingId === action.id}
-                    isAdded={addedId === action.id}
-                    onAddPolicy={onAddPolicy}
-                  />
-                ))}
+                {rowVirtualizer.getVirtualItems().length > 0 && (
+                  <tr>
+                    <td style={{ height: rowVirtualizer.getVirtualItems()[0].start, padding: 0 }} colSpan={6} />
+                  </tr>
+                )}
+                {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                  const action = actions[virtualRow.index];
+                  return (
+                    <ActionRow
+                      key={action.id}
+                      action={action}
+                      isPending={pendingId === action.id}
+                      isAdded={addedId === action.id}
+                      onAddPolicy={onAddPolicy}
+                    />
+                  );
+                })}
+                {rowVirtualizer.getVirtualItems().length > 0 && (
+                  <tr>
+                    <td
+                      style={{
+                        height: rowVirtualizer.getTotalSize() - (rowVirtualizer.getVirtualItems().at(-1)?.end ?? 0),
+                        padding: 0,
+                      }}
+                      colSpan={6}
+                    />
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
