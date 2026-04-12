@@ -32,7 +32,7 @@ export default function DataSourceControls({ activeTab, onTabChange }: Props) {
   }, [mode, status]);
 
   return (
-    <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-cyan-500/30 bg-slate-900/40 px-4 py-2 backdrop-blur">
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-cyan-500/30 bg-slate-900/40 px-4 py-2 backdrop-blur">
       <div className="flex items-center gap-3">
         <div className="relative">
           {/* eslint-disable-next-line @next/next/no-img-element */}

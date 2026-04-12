@@ -80,7 +80,7 @@ export default function SingleConsolePage() {
     <SimulationProvider initialMode="live" persist={false}>
       <PolicyQueryProvider>
         <PolicyBlocksProvider>
-          <main className="space-y-4 p-6">
+          <main className="space-y-3 px-4 py-3">
             <DataSourceControls activeTab={activeTab} onTabChange={setActiveTab} />
             <ConsoleContent activeTab={activeTab} />
           </main>

@@ -33,7 +33,7 @@ const typeIcon: Record<ActionType, React.ReactNode> = {
 const typeIconFor = (value: ActionType): React.ReactNode => typeIcon[value] ?? <List className="size-3" />;
 
 const MIN_EVENTS_PANE_HEIGHT = 650;
-const VIEWPORT_GUTTER_PX = 24;
+const VIEWPORT_GUTTER_PX = 12;
 
 // Static equalizer bars — hoisted to avoid recreating 8 elements every render.
 const equalizerBars = (
