@@ -45,8 +45,7 @@ function ConsoleContent() {
 
   const handlePolicyRemoved = useCallback((id: string) => {
     setPolicyLines((prev) => prev.filter((line) => line.id !== id));
-    void loadLines();
-  }, [loadLines]);
+  }, []);
 
   return (
     <SingleProvider>
