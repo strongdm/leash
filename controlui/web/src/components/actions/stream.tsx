@@ -376,52 +376,30 @@ export function ActionsStream({ instanceId, onPolicyMutated }: { instanceId?: st
 
   // Ensure the events pane fills the viewport while respecting a minimum height.
   useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    const updatePaneHeight = () => {
-      const pane = paneRef.current;
-      if (!pane) return;
-      const rect = pane.getBoundingClientRect();
-      const viewportHeight = window.innerHeight;
-      const availableHeight = viewportHeight - rect.top - VIEWPORT_GUTTER_PX;
-      if (!Number.isFinite(availableHeight)) {
-        return;
-      }
-      const nextHeight = Math.max(MIN_EVENTS_PANE_HEIGHT, Math.round(availableHeight));
-      setPaneHeight((current) => (current === nextHeight ? current : nextHeight));
-    };
+    if (typeof window === "undefined" || typeof ResizeObserver === "undefined") return;
+    const pane = paneRef.current;
+    if (!pane) return;
 
     let frame = 0;
-    const scheduleUpdate = () => {
+    const update = () => {
       cancelAnimationFrame(frame);
-      frame = window.requestAnimationFrame(updatePaneHeight);
+      frame = requestAnimationFrame(() => {
+        const rect = pane.getBoundingClientRect();
+        const available = window.innerHeight - rect.top - VIEWPORT_GUTTER_PX;
+        if (!Number.isFinite(available)) return;
+        const next = Math.max(MIN_EVENTS_PANE_HEIGHT, Math.round(available));
+        setPaneHeight((cur) => (cur === next ? cur : next));
+      });
     };
 
-    scheduleUpdate();
-    window.addEventListener("resize", scheduleUpdate);
-
-    let observer: ResizeObserver | null = null;
-    if (typeof ResizeObserver !== "undefined") {
-      observer = new ResizeObserver(scheduleUpdate);
-      const pane = paneRef.current;
-      if (pane) {
-        observer.observe(pane);
-      }
-      if (pane?.parentElement) {
-        observer.observe(pane.parentElement);
-      }
-      const body = document.body;
-      if (body) {
-        observer.observe(body);
-      }
-    }
+    const observer = new ResizeObserver(update);
+    observer.observe(pane);
+    observer.observe(document.documentElement);
+    update();
 
     return () => {
-      window.removeEventListener("resize", scheduleUpdate);
       cancelAnimationFrame(frame);
-      observer?.disconnect();
+      observer.disconnect();
     };
   }, []);
 
