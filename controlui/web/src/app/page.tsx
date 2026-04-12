@@ -5,7 +5,7 @@ import DataSourceControls from "@/components/nav/data-source-controls";
 import type { PageTab } from "@/components/nav/data-source-controls";
 import SingleHeader from "@/components/single/header";
 import PromptBanner from "@/components/single/prompt-banner";
-import CedarEditorCollapsible from "@/components/policy/cedar-editor-collapsible";
+import CedarEditor from "@/components/policy/cedar-editor";
 import { ActionsStream } from "@/components/actions/stream";
 import PolicyBlockCard from "@/components/policy/policy-block-card";
 import { fetchPolicyLines, type PolicyLine } from "@/lib/policy/api";
@@ -55,15 +55,17 @@ function ConsoleContent({ activeTab }: { activeTab: PageTab }) {
           <ActionsStream onPolicyMutated={loadLines} />
         )}
         {activeTab === "policy" && (
-          <>
-            <CedarEditorCollapsible defaultOpen={false} />
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <div className="lg:col-span-2">
+              <CedarEditor />
+            </div>
             <div className="space-y-3">
               <SingleHeader />
               {policyLines.map((line) => (
                 <PolicyBlockCard key={line.id} line={line} onRemoved={handlePolicyRemoved} />
               ))}
             </div>
-          </>
+          </div>
         )}
         <PromptBanner />
       </section>
