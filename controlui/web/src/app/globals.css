@@ -121,7 +121,6 @@ body {
   body {
     @apply bg-background text-foreground;
     position: relative;
-    min-height: 100vh;
   }
   
   /* Animated background grid pattern */

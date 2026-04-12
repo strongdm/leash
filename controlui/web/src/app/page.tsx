@@ -50,8 +50,8 @@ function ConsoleContent({ activeTab }: { activeTab: PageTab }) {
 
   return (
     <SingleProvider>
-      <section className="space-y-4">
-        <div className={activeTab !== "events" ? "hidden" : undefined}>
+      <section className="flex-1 flex flex-col gap-3 min-h-0">
+        <div className={activeTab !== "events" ? "hidden" : "flex-1 flex flex-col min-h-0"}>
           <ActionsStream onPolicyMutated={loadLines} />
         </div>
         <div className={activeTab !== "policy" ? "hidden" : "grid grid-cols-1 gap-4 lg:grid-cols-3"}>
@@ -78,7 +78,7 @@ export default function SingleConsolePage() {
     <SimulationProvider initialMode="live" persist={false}>
       <PolicyQueryProvider>
         <PolicyBlocksProvider>
-          <main className="space-y-3 px-4 py-3">
+          <main className="flex-1 flex flex-col gap-3 px-4 py-3 min-h-0">
             <DataSourceControls activeTab={activeTab} onTabChange={setActiveTab} />
             <ConsoleContent activeTab={activeTab} />
           </main>

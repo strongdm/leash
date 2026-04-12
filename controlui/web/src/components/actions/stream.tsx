@@ -40,8 +40,6 @@ const typeBadgeClass = (t: ActionType): string => {
   return "bg-cyan-500/15 text-cyan-300 border-cyan-500/25"; // mcp/*
 };
 
-const MIN_EVENTS_PANE_HEIGHT = 650;
-const VIEWPORT_GUTTER_PX = 12;
 
 const PROJECT_FALLBACK_SLUG = "project";
 
@@ -330,8 +328,6 @@ export function ActionsStream({ instanceId, onPolicyMutated }: { instanceId?: st
   const [allowed, setAllowed] = useState<"all" | "allowed" | "denied">("all");
   const [type, setType] = useState<"all" | "mcp" | ActionType>("all");
   const { refresh, patchPolicies, showNotice } = usePolicyBlocksContext();
-  const paneRef = useRef<HTMLDivElement | null>(null);
-  const [paneHeight, setPaneHeight] = useState<number | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const hoverActiveRef = useRef(false);
 
@@ -372,35 +368,6 @@ export function ActionsStream({ instanceId, onPolicyMutated }: { instanceId?: st
 
     window.addEventListener("keydown", handleSpaceScroll);
     return () => window.removeEventListener("keydown", handleSpaceScroll);
-  }, []);
-
-  // Ensure the events pane fills the viewport while respecting a minimum height.
-  useEffect(() => {
-    if (typeof window === "undefined" || typeof ResizeObserver === "undefined") return;
-    const pane = paneRef.current;
-    if (!pane) return;
-
-    let frame = 0;
-    const update = () => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        const rect = pane.getBoundingClientRect();
-        const available = window.innerHeight - rect.top - VIEWPORT_GUTTER_PX;
-        if (!Number.isFinite(available)) return;
-        const next = Math.max(MIN_EVENTS_PANE_HEIGHT, Math.round(available));
-        setPaneHeight((cur) => (cur === next ? cur : next));
-      });
-    };
-
-    const observer = new ResizeObserver(update);
-    observer.observe(pane);
-    observer.observe(document.documentElement);
-    update();
-
-    return () => {
-      cancelAnimationFrame(frame);
-      observer.disconnect();
-    };
   }, []);
 
   // Debounce text input to reduce re-filtering
@@ -656,7 +623,7 @@ export function ActionsStream({ instanceId, onPolicyMutated }: { instanceId?: st
   }, [handleDownload]);
 
   return (
-    <div className="space-y-4">
+    <div className="flex-1 flex flex-col gap-3 min-h-0">
       <div className="flex flex-wrap items-center gap-3">
         <Input
           value={text}
@@ -702,9 +669,7 @@ export function ActionsStream({ instanceId, onPolicyMutated }: { instanceId?: st
 
       <TooltipProvider>
         <div
-          ref={paneRef}
-          className="relative flex flex-col overflow-hidden rounded-lg border border-border bg-slate-900/60"
-          style={{ minHeight: MIN_EVENTS_PANE_HEIGHT, height: paneHeight ?? undefined }}
+          className="relative flex-1 flex flex-col overflow-hidden rounded-lg border border-border bg-slate-900/60 min-h-0"
         >
           <div
             ref={scrollContainerRef}
