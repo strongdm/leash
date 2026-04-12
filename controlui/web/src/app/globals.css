@@ -156,4 +156,17 @@ body {
       animation: none;
     }
   }
+
+  /* Cedar policy editor — Prism token colors */
+  .cedar-editor-root .token.keyword { color: hsl(var(--cyan-bright)); font-weight: 600; }
+  .cedar-editor-root .token.entity { color: hsl(var(--neon-green)); }
+  .cedar-editor-root .token.string { color: hsl(var(--neon-amber)); }
+  .cedar-editor-root .token.number { color: hsl(var(--neon-amber)); }
+  .cedar-editor-root .token.operator { color: hsl(191 50% 70%); }
+  .cedar-editor-root .token.punctuation { color: hsl(191 30% 60%); }
+  .cedar-editor-root .token.comment { color: hsl(220 20% 45%); font-style: italic; }
+
+  .cedar-editor-root textarea {
+    outline: none !important;
+  }
 }
