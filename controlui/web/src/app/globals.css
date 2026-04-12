@@ -188,4 +188,9 @@ body {
   .cedar-editor-root textarea {
     outline: none !important;
   }
+  .cedar-editor-root textarea:focus-visible {
+    outline: none !important;
+    box-shadow: 0 0 0 2px hsl(var(--cyan-bright) / 0.4);
+    border-radius: 4px;
+  }
 }

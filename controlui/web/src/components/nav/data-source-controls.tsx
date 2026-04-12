@@ -39,6 +39,8 @@ export default function DataSourceControls({ activeTab, onTabChange }: Props) {
           <img
             src="/logo.svg"
             alt="Leash Logo"
+            width={36}
+            height={36}
             className="size-9 opacity-90"
             style={{ filter: 'brightness(0) invert(1) sepia(1) saturate(5) hue-rotate(175deg)' }}
           />
@@ -56,7 +58,7 @@ export default function DataSourceControls({ activeTab, onTabChange }: Props) {
               by{" "}
               <a
                 href="https://www.strongdm.com"
-                className="text-inherit no-underline cursor-pointer hover:no-underline focus:no-underline active:no-underline"
+                className="text-inherit no-underline cursor-pointer hover:underline hover:text-purple-300 focus:no-underline active:no-underline"
                 target="_blank"
                 rel="noreferrer noopener"
               >

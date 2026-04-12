@@ -683,7 +683,9 @@ export function ActionsStream({ instanceId, onPolicyMutated }: { instanceId?: st
         <Input
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="Filter by name/id..."
+          placeholder="Filter by name/id…"
+          aria-label="Filter events"
+          autoComplete="off"
           className="max-w-sm bg-slate-900/50 border-cyan-500/30 text-cyan-300 placeholder:text-cyan-400/50"
         />
         <Tabs value={allowed} onValueChange={(v: string) => setAllowed(v as "all" | "allowed" | "denied")}>
