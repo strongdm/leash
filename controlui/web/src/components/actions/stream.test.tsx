@@ -3,6 +3,21 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SimulationState } from "@/lib/mock/types";
 import { ActionsStream } from "@/components/actions/stream";
 
+// Mock the virtualizer to render all rows in tests (jsdom has no layout dimensions).
+vi.mock("@tanstack/react-virtual", () => ({
+  useVirtualizer: ({ count }: { count: number }) => ({
+    getVirtualItems: () =>
+      Array.from({ length: count }, (_, i) => ({
+        index: i,
+        start: i * 44,
+        end: (i + 1) * 44,
+        size: 44,
+        key: i,
+      })),
+    getTotalSize: () => count * 44,
+  }),
+}));
+
 const mockState: SimulationState = {
   instances: new Map(),
   recentActions: [],
@@ -63,7 +78,9 @@ describe("ActionsStream", () => {
     render(<ActionsStream />);
 
     const table = screen.getByRole("table");
-    const dataRows = within(table).getAllByRole("row").slice(1);
+    // Filter out spacer rows (they have no text content) and the header row.
+    const allRows = within(table).getAllByRole("row");
+    const dataRows = allRows.filter((row) => row.textContent && row.textContent.trim() !== "" && !row.querySelector("th"));
     expect(dataRows).toHaveLength(2);
 
     const fileRow = dataRows.find((row) => within(row).queryByText("file/open"));
@@ -76,7 +93,7 @@ describe("ActionsStream", () => {
     expect(screen.getByText("Total: 5")).toBeInTheDocument();
     expect(screen.getByText("Allowed: 3")).toBeInTheDocument();
     expect(screen.getByText("Denied: 2")).toBeInTheDocument();
-    expect(screen.getByText("2 shown")).toBeInTheDocument();
+    expect(screen.getByText("2 events")).toBeInTheDocument();
   });
 
   it("scrolls a page down when space is pressed while hovered", () => {

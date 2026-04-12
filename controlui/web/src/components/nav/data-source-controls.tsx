@@ -5,7 +5,14 @@ import { useDataSource } from "@/lib/mock/sim";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-export default function DataSourceControls() {
+export type PageTab = "events" | "policy";
+
+type Props = {
+  activeTab?: PageTab;
+  onTabChange?: (tab: PageTab) => void;
+};
+
+export default function DataSourceControls({ activeTab, onTabChange }: Props) {
   const { mode, setMode, status, error, wsUrl } = useDataSource();
 
   const statusBadge = useMemo(() => {
@@ -25,31 +32,30 @@ export default function DataSourceControls() {
   }, [mode, status]);
 
   return (
-    <div className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-lg border border-cyan-500/30 bg-slate-900/40 px-4 py-3 backdrop-blur">
-      <div className="flex items-center gap-4">
-        <div className="relative">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/logo.svg"
-            alt="Leash Logo"
-            className="size-16 opacity-90"
-            style={{ filter: 'brightness(0) invert(1) sepia(1) saturate(5) hue-rotate(175deg)' }}
-          />
-          <div className="absolute inset-0 size-16 bg-cyan-400 blur-xl opacity-50 animate-pulse" />
-        </div>
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-slate-900/60 px-4 py-2">
+      <div className="flex items-center gap-3">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/logo.svg"
+          alt="Leash Logo"
+          width={36}
+          height={36}
+          className="size-9 opacity-90"
+          style={{ filter: 'brightness(0) invert(1) sepia(1) saturate(5) hue-rotate(175deg)' }}
+        />
         <div>
           <h1
-            className="text-6xl font-bold text-transparent bg-clip-text"
+            className="text-2xl font-bold text-transparent bg-clip-text leading-tight"
             style={{
               backgroundImage: "linear-gradient(90deg, #845EEE 0%, #A04CF0 50%, #C951E7 100%)",
             }}
           >
             leash{" "}
-            <span className="text-xl">
+            <span className="text-xs font-medium">
               by{" "}
               <a
                 href="https://www.strongdm.com"
-                className="text-inherit no-underline cursor-pointer hover:no-underline focus:no-underline active:no-underline"
+                className="text-inherit no-underline cursor-pointer hover:underline hover:text-purple-300 focus:no-underline active:no-underline"
                 target="_blank"
                 rel="noreferrer noopener"
               >
@@ -57,33 +63,37 @@ export default function DataSourceControls() {
               </a>
             </span>
           </h1>
-          <div className="text-xs text-cyan-400/90 tracking-[0.2em] uppercase font-medium">AI Agent Visibility and Control</div>
+          <div className="text-[10px] text-cyan-400/80 tracking-[0.15em] uppercase font-medium">AI Agent Visibility and Control</div>
         </div>
-        <div className="ml-6 border-l border-cyan-500/30 pl-6">
-          <div className="text-xs uppercase tracking-wide text-cyan-400/70">Data Source</div>
-          <div className="mt-1 flex items-center gap-2">
-            <span className="text-sm font-semibold text-cyan-200">
-              {mode === "sim" ? "Simulated" : "Live"}
-            </span>
+        {activeTab !== "policy" && (
+          <div className="ml-3 border-l border-border pl-3 flex items-center gap-2">
+            <Tabs value={mode} onValueChange={(value) => setMode(value as "sim" | "live")}>
+              <TabsList className="bg-slate-900/50 border border-border">
+                <TabsTrigger value="sim">Simulated</TabsTrigger>
+                <TabsTrigger value="live">Live</TabsTrigger>
+              </TabsList>
+            </Tabs>
+            <Badge variant="secondary" className={`h-9 border ${statusBadge.tone}`}>
+              {statusBadge.label}
+            </Badge>
+            {mode === "live" && wsUrl && (
+              <span className="text-[10px] font-mono text-cyan-400/50 max-w-[200px] truncate">{wsUrl}</span>
+            )}
+            {mode === "live" && error && (
+              <span className="text-[10px] text-red-400">{error}</span>
+            )}
           </div>
-          {mode === "live" && wsUrl && (
-            <div className="mt-1 text-xs font-mono text-cyan-400/60 break-all">{wsUrl}</div>
-          )}
-          {mode === "live" && error && (
-            <div className="mt-1 text-xs text-red-400">{error}</div>
-          )}
-        </div>
+        )}
       </div>
       <div className="flex items-center gap-3">
-        <Badge variant="secondary" className={`border ${statusBadge.tone}`}>
-          {statusBadge.label}
-        </Badge>
-        <Tabs value={mode} onValueChange={(value) => setMode(value as "sim" | "live")}>
-          <TabsList className="bg-slate-900/50 border border-cyan-500/30">
-            <TabsTrigger value="sim">Simulated</TabsTrigger>
-            <TabsTrigger value="live">Live</TabsTrigger>
-          </TabsList>
-        </Tabs>
+        {activeTab && onTabChange && (
+          <Tabs value={activeTab} onValueChange={(v) => onTabChange(v as PageTab)}>
+            <TabsList className="bg-slate-900/50 border border-border">
+              <TabsTrigger value="events">Events</TabsTrigger>
+              <TabsTrigger value="policy">Policy</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        )}
       </div>
     </div>
   );

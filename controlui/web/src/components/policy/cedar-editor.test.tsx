@@ -1,23 +1,24 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
-import CedarEditor from "./cedar-editor";
-import type { Monaco } from "@monaco-editor/react";
-import type * as monacoEditor from "monaco-editor";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-
+import CedarEditor from "./cedar-editor";
 import { usePolicyBlocksContext } from "@/lib/policy/policy-blocks-context";
-import {
-  fetchPolicyCompletions,
-  validateCedarPolicy,
-} from "@/lib/policy/api";
+import { validateCedarPolicy } from "@/lib/policy/api";
 
 vi.mock("@/lib/policy/policy-blocks-context", () => ({
   usePolicyBlocksContext: vi.fn(),
 }));
 
-const mockContext = vi.mocked(usePolicyBlocksContext);
+vi.mock("@/lib/policy/api", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/policy/api")>("@/lib/policy/api");
+  return {
+    ...actual,
+    fetchPolicyCompletions: vi.fn(),
+    validateCedarPolicy: vi.fn(),
+  };
+});
 
-let fetchSpy: vi.MockedFunction<typeof fetchPolicyCompletions>;
-let validateSpy: vi.MockedFunction<typeof validateCedarPolicy>;
+const mockContext = vi.mocked(usePolicyBlocksContext);
+let validateSpy: ReturnType<typeof vi.mocked<typeof validateCedarPolicy>>;
 
 const SAMPLE_POLICY = 'permit (principal, action == Action::"FileOpen", resource);';
 
@@ -54,135 +55,21 @@ function createContext(overrides: Partial<CedarEditorContextStub> = {}): CedarEd
   return { ...defaults, ...overrides };
 }
 
-let registeredProvider: monacoEditor.languages.CompletionItemProvider | null = null;
-let currentModelValue = SAMPLE_POLICY;
-
-const fakeModel = {
-  getValue: () => currentModelValue,
-};
-
-const fakeEditor: Partial<monacoEditor.editor.IStandaloneCodeEditor> = {
-  getModel: () => fakeModel as monacoEditor.editor.ITextModel,
-  updateOptions: vi.fn(),
-  onDidDispose: vi.fn(),
-};
-
-const fakeMonaco = {
-  languages: {
-    register: vi.fn(),
-    setLanguageConfiguration: vi.fn(),
-    setMonarchTokensProvider: vi.fn(),
-    registerCompletionItemProvider: vi.fn((languageId: string, provider: monacoEditor.languages.CompletionItemProvider) => {
-      registeredProvider = provider;
-      return { dispose: vi.fn() } as monacoEditor.IDisposable;
-    }),
-    CompletionItemInsertTextRule: { InsertAsSnippet: 4 },
-    CompletionItemKind: {
-      Keyword: 14,
-      Function: 3,
-      Class: 5,
-      Field: 4,
-      Variable: 6,
-      Snippet: 27,
-      Interface: 7,
-      EnumMember: 12,
-      Property: 9,
-      Text: 0,
-    },
-  },
-  editor: {
-    setModelMarkers: vi.fn(),
-    MarkerSeverity: { Error: 8, Warning: 4 },
-  },
-  Range: class Range {
-    constructor(
-      public startLineNumber: number,
-      public startColumn: number,
-      public endLineNumber: number,
-      public endColumn: number,
-    ) {}
-  },
-} as unknown as Monaco;
-
-type MockEditorProps = {
-  value?: string;
-  beforeMount?: (monaco: Monaco) => void;
-  onMount?: (editor: monacoEditor.editor.IStandaloneCodeEditor, monaco: Monaco) => void;
-  onChange?: (value: string | undefined) => void;
-};
-
-vi.mock("@monaco-editor/react", () => {
-  const Component = (props: MockEditorProps) => {
-    currentModelValue = props.value ?? "";
-    props.beforeMount?.(fakeMonaco);
-    props.onMount?.(fakeEditor as monacoEditor.editor.IStandaloneCodeEditor, fakeMonaco);
-    return (
-      <textarea
-        data-testid="mock-editor"
-        value={props.value ?? ""}
-        onChange={(event) => {
-          currentModelValue = event.target.value;
-          props.onChange?.(event.target.value);
-        }}
-      />
-    );
-  };
-  return { default: Component };
-});
-
-vi.mock("@/lib/policy/api", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/policy/api")>("@/lib/policy/api");
-  return {
-    ...actual,
-    fetchPolicyCompletions: vi.fn(),
-    validateCedarPolicy: vi.fn(),
-  };
-});
-
-function createCancellationToken(): monacoEditor.CancellationToken {
-  return {
-    isCancellationRequested: false,
-    onCancellationRequested: () => ({ dispose: vi.fn() }),
-  } as unknown as monacoEditor.CancellationToken;
-}
-
 describe("CedarEditor", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
-    registeredProvider = null;
-    currentModelValue = SAMPLE_POLICY;
-
-    fetchSpy = vi.mocked(fetchPolicyCompletions);
-    fetchSpy.mockResolvedValue({
-      items: [
-        {
-          label: 'Action::"FileOpen"',
-          kind: "action",
-          insertText: 'Action::"FileOpen"',
-          detail: "Allow reading or writing files",
-          documentation: "Applies to file open operations.",
-          range: {
-            start: { line: 1, column: 1 },
-            end: { line: 1, column: 1 },
-          },
-        },
-      ],
-    });
 
     validateSpy = vi.mocked(validateCedarPolicy);
     validateSpy.mockResolvedValue({
       allowAllConnect: true,
+      allowOpen: 0,
+      allowExec: 0,
       allowConnect: 1,
+      denyOpen: 0,
+      denyExec: 0,
       denyConnect: 0,
-      issues: [
-        {
-          policyId: "Policy::Example",
-          severity: "error",
-          code: "unsupported_action",
-          message: "Action not supported",
-        },
-      ],
+      issues: [],
     });
   });
 
@@ -190,70 +77,35 @@ describe("CedarEditor", () => {
     vi.useRealTimers();
   });
 
-  test("updates editor draft when user types", () => {
-    const context = createContext();
-    mockContext.mockReturnValue(context);
-
+  test("renders the editor with current draft", () => {
+    mockContext.mockReturnValue(createContext());
     render(<CedarEditor />);
 
-    const textarea = screen.getByTestId("mock-editor") as HTMLTextAreaElement;
+    const textarea = screen.getByRole("textbox");
+    expect(textarea).toHaveValue(SAMPLE_POLICY);
+  });
+
+  test("calls setEditorDraft when user types", () => {
+    const context = createContext();
+    mockContext.mockReturnValue(context);
+    render(<CedarEditor />);
+
+    const textarea = screen.getByRole("textbox");
     fireEvent.change(textarea, { target: { value: "permit (principal, action, resource);" } });
 
     expect(context.setEditorDraft).toHaveBeenCalledWith("permit (principal, action, resource);");
   });
 
-  test("registers completion provider and shows suggestion help", async () => {
+  test("debounces validation after draft change", async () => {
     mockContext.mockReturnValue(createContext());
-
     render(<CedarEditor />);
 
-    await act(async () => {
-      await Promise.resolve();
-    });
+    // Validation hasn't fired yet
+    expect(validateSpy).not.toHaveBeenCalled();
 
-    expect(fakeMonaco.languages.registerCompletionItemProvider).toHaveBeenCalledWith(
-      "cedar",
-      expect.any(Object),
-    );
+    // Advance past the debounce
+    await vi.advanceTimersByTimeAsync(600);
 
-    const provider = registeredProvider;
-    expect(provider).not.toBeNull();
-
-    let result: monacoEditor.languages.CompletionList | undefined;
-    await act(async () => {
-      result = await provider!.provideCompletionItems(
-        fakeModel as monacoEditor.editor.ITextModel,
-        { lineNumber: 1, column: 1 },
-        {} as monacoEditor.languages.CompletionContext,
-        createCancellationToken(),
-      );
-    });
-
-    expect(fetchSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        cedar: SAMPLE_POLICY,
-        cursor: { line: 1, column: 1 },
-      }),
-      expect.any(AbortSignal),
-    );
-    expect(result?.suggestions?.length ?? 0).toBeGreaterThan(0);
-  });
-
-  test("applies validation markers", async () => {
-    mockContext.mockReturnValue(createContext());
-
-    render(<CedarEditor />);
-
-    await act(async () => {
-      await Promise.resolve();
-    });
-
-    await act(async () => {
-      vi.runOnlyPendingTimers();
-      await Promise.resolve();
-    });
-
-    expect(validateSpy).toHaveBeenCalled();
-    expect(fakeMonaco.editor.setModelMarkers).toHaveBeenCalled();
+    expect(validateSpy).toHaveBeenCalledWith(SAMPLE_POLICY, expect.any(AbortSignal));
   });
 });

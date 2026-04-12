@@ -1,13 +1,14 @@
 "use client";
 
 import { useMemo, useState, useCallback, useEffect, memo, useRef } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { useSimulation } from "@/lib/mock/sim";
 import type { Action, ActionType } from "@/lib/mock/types";
 import { timeAgo } from "@/lib/time";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Network, FileText, Terminal, List, Globe, Shield, Clock, Database, MessageSquare, Bell, Power, Check, X, Download } from "lucide-react";
+import { Network, FileText, Terminal, List, Globe, Shield, Clock, Database, MessageSquare, Bell, Power, Check, Plus, X, Download, ArrowUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { usePolicyBlocksContext } from "@/lib/policy/policy-blocks-context";
@@ -31,8 +32,15 @@ const typeIcon: Record<ActionType, React.ReactNode> = {
 
 const typeIconFor = (value: ActionType): React.ReactNode => typeIcon[value] ?? <List className="size-3" />;
 
-const MIN_EVENTS_PANE_HEIGHT = 650;
-const VIEWPORT_GUTTER_PX = 24;
+// Color scheme per event category for the type badge
+const typeBadgeClass = (t: ActionType): string => {
+  if (t.startsWith("file/") || t === "fs/list") return "bg-blue-500/15 text-blue-300 border-blue-500/25";
+  if (t === "net/connect" || t === "dns/resolve") return "bg-purple-500/15 text-purple-300 border-purple-500/25";
+  if (t === "proc/exec") return "bg-amber-500/15 text-amber-300 border-amber-500/25";
+  return "bg-cyan-500/15 text-cyan-300 border-cyan-500/25"; // mcp/*
+};
+
+
 const PROJECT_FALLBACK_SLUG = "project";
 
 function slugifyForFilename(value: string): string {
@@ -152,72 +160,34 @@ const ActionRow = memo(({
   const repeats = action.repeatCount ?? 1;
 
   return (
-    <tr className="border-b border-cyan-500/10 transition-all duration-500 hover:bg-cyan-500/5">
-      <td className="p-3 align-middle text-cyan-300/60 text-xs">{timeAgo(action.ts)}</td>
-      <td className="p-2.5 align-middle whitespace-nowrap">
-        <span className="inline-flex items-center gap-1 text-slate-300">
+    <tr className="group border-b border-cyan-500/8 hover:bg-cyan-500/5">
+      {/* Left edge accent */}
+      <td className="w-[3px] p-0">
+        <div className={`h-full w-[3px] ${action.allowed ? "bg-green-500/40" : "bg-red-500/50"}`} />
+      </td>
+      <td className="py-2 px-2.5 align-middle text-cyan-400/50 text-[11px] font-mono tabular-nums whitespace-nowrap">{timeAgo(action.ts)}</td>
+      <td className="py-2 px-2 align-middle whitespace-nowrap">
+        <span className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-medium ${typeBadgeClass(action.type)}`}>
           {typeIconFor(action.type)}
-          <span className="text-xs whitespace-nowrap">{action.type}</span>
-          {action.notification && (
-            <Badge className="bg-amber-500/20 text-amber-200 border-amber-500/40 px-1 text-[10px]">
-              notify
-            </Badge>
-          )}
+          {action.type}
         </span>
       </td>
-      <td className="p-2.5 align-middle text-xs min-w-0">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div className="truncate cursor-default">{renderDetail(action)}</div>
-          </TooltipTrigger>
-          <TooltipContent className="max-w-2xl">
-            {renderDetail(action)}
-          </TooltipContent>
-        </Tooltip>
+      <td className="py-2 px-2 align-middle text-xs min-w-0">
+        <div className="truncate">{renderDetail(action)}</div>
       </td>
-      <td className="p-2.5 whitespace-nowrap align-middle">
-        {action.allowed ? (
-          <div className="flex items-center gap-2">
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-green-400">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-            </span>
-            <span className="text-xs uppercase tracking-wide font-medium text-green-400">
-              Allowed
-            </span>
-          </div>
-        ) : (
-          <div className="flex items-center gap-2">
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-red-400">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-            </span>
-            <span className="text-xs uppercase tracking-wide font-medium text-red-400">
-              Denied
-            </span>
-          </div>
-        )}
-      </td>
-      <td className="p-2.5 align-middle text-center">
-        <span
-          data-testid="repeat-count"
-          className="inline-flex min-w-[28px] items-center justify-center rounded-full border border-cyan-500/20 bg-slate-900/60 px-2 py-0.5 text-[10px] font-semibold"
-          style={{ color: "color-mix(in oklab, var(--color-cyan-400) 70%, transparent)" }}
-        >
-          {repeats}
-        </span>
-      </td>
-      <td className="p-2.5 whitespace-nowrap align-middle">
-        <div className="flex items-center gap-1">
+      <td className="py-2 px-2 whitespace-nowrap align-middle">
+        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 size="icon"
                 variant="ghost"
-                className="text-green-400 hover:text-green-300 hover:bg-green-500/10 h-7 w-7"
+                className="text-green-400/70 hover:text-green-300 hover:bg-green-500/10 h-6 w-6"
                 aria-label="Add Allow"
                 onClick={() => onAddPolicy(action, "permit")}
                 disabled={isPending || (action.type === "mcp/call" && !action.tool)}
               >
-                {isAdded ? <Check className="size-4" /> : <Check className="size-4" />}
+                {isAdded ? <Check className="size-3.5" /> : <Plus className="size-3.5" />}
               </Button>
             </TooltipTrigger>
             <TooltipContent>
@@ -231,12 +201,12 @@ const ActionRow = memo(({
               <Button
                 size="icon"
                 variant="ghost"
-                className="text-red-400 hover:text-red-300 hover:bg-red-500/10 h-7 w-7"
+                className="text-red-400/70 hover:text-red-300 hover:bg-red-500/10 h-6 w-6"
                 aria-label="Add Deny"
                 onClick={() => onAddPolicy(action, "forbid")}
                 disabled={isPending || (action.type === "mcp/call" && !action.tool)}
               >
-                <X className="size-4" />
+                <X className="size-3.5" />
               </Button>
             </TooltipTrigger>
             <TooltipContent>
@@ -246,6 +216,24 @@ const ActionRow = memo(({
             </TooltipContent>
           </Tooltip>
         </div>
+      </td>
+      <td className="py-2 px-2 whitespace-nowrap align-middle">
+        <span className={`inline-flex items-center gap-1.5 text-[11px] font-medium ${action.allowed ? "text-green-400" : "text-red-400"}`}>
+          <span className={`h-1.5 w-1.5 rounded-full ${action.allowed ? "bg-green-400" : "bg-red-400"}`} />
+          {action.allowed ? "Allow" : "Deny"}
+        </span>
+      </td>
+      <td className="py-2 px-2 align-middle text-center whitespace-nowrap">
+        {repeats > 1 ? (
+          <span
+            data-testid="repeat-count"
+            className="inline-flex items-center justify-center rounded-md bg-cyan-500/10 px-1.5 py-0.5 text-xs font-mono text-cyan-400/80"
+          >
+            {repeats}
+          </span>
+        ) : (
+          <span data-testid="repeat-count" className="text-xs text-cyan-500/25 font-mono">1</span>
+        )}
       </td>
     </tr>
   );
@@ -340,8 +328,6 @@ export function ActionsStream({ instanceId, onPolicyMutated }: { instanceId?: st
   const [allowed, setAllowed] = useState<"all" | "allowed" | "denied">("all");
   const [type, setType] = useState<"all" | "mcp" | ActionType>("all");
   const { refresh, patchPolicies, showNotice } = usePolicyBlocksContext();
-  const paneRef = useRef<HTMLDivElement | null>(null);
-  const [paneHeight, setPaneHeight] = useState<number | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const hoverActiveRef = useRef(false);
 
@@ -384,57 +370,6 @@ export function ActionsStream({ instanceId, onPolicyMutated }: { instanceId?: st
     return () => window.removeEventListener("keydown", handleSpaceScroll);
   }, []);
 
-  // Ensure the events pane fills the viewport while respecting a minimum height.
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    const updatePaneHeight = () => {
-      const pane = paneRef.current;
-      if (!pane) return;
-      const rect = pane.getBoundingClientRect();
-      const viewportHeight = window.innerHeight;
-      const availableHeight = viewportHeight - rect.top - VIEWPORT_GUTTER_PX;
-      if (!Number.isFinite(availableHeight)) {
-        return;
-      }
-      const nextHeight = Math.max(MIN_EVENTS_PANE_HEIGHT, Math.round(availableHeight));
-      setPaneHeight((current) => (current === nextHeight ? current : nextHeight));
-    };
-
-    let frame = 0;
-    const scheduleUpdate = () => {
-      cancelAnimationFrame(frame);
-      frame = window.requestAnimationFrame(updatePaneHeight);
-    };
-
-    scheduleUpdate();
-    window.addEventListener("resize", scheduleUpdate);
-
-    let observer: ResizeObserver | null = null;
-    if (typeof ResizeObserver !== "undefined") {
-      observer = new ResizeObserver(scheduleUpdate);
-      const pane = paneRef.current;
-      if (pane) {
-        observer.observe(pane);
-      }
-      if (pane?.parentElement) {
-        observer.observe(pane.parentElement);
-      }
-      const body = document.body;
-      if (body) {
-        observer.observe(body);
-      }
-    }
-
-    return () => {
-      window.removeEventListener("resize", scheduleUpdate);
-      cancelAnimationFrame(frame);
-      observer?.disconnect();
-    };
-  }, []);
-
   // Debounce text input to reduce re-filtering
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -460,7 +395,7 @@ export function ActionsStream({ instanceId, onPolicyMutated }: { instanceId?: st
     v === "mcp/init" ||
     v === "mcp/notify";
 
-  const { actions, filteredTotal } = useMemo(() => {
+  const actions = useMemo(() => {
     const filtered = state.recentActions.filter((action) => {
       if (instanceId && action.instanceId !== instanceId) {
         return false;
@@ -486,9 +421,7 @@ export function ActionsStream({ instanceId, onPolicyMutated }: { instanceId?: st
       }
       return true;
     });
-    const sorted = filtered.slice().reverse();
-    const limited = sorted.slice(0, 50);
-    return { actions: limited, filteredTotal: sorted.length };
+    return filtered.slice().reverse();
   }, [state.recentActions, instanceId, allowed, type, debouncedText]);
 
   const actionSummary = useMemo(() => {
@@ -507,9 +440,54 @@ export function ActionsStream({ instanceId, onPolicyMutated }: { instanceId?: st
     return { total, allowed: allowedCount, denied: deniedCount };
   }, [actions]);
 
-  const summaryLabel = filteredTotal <= actions.length
-    ? `${actions.length} shown`
-    : `${actions.length} of ${filteredTotal} shown`;
+  const summaryLabel = actions.length === state.recentActions.length
+    ? `${actions.length} events`
+    : `${actions.length} of ${state.recentActions.length} events`;
+
+  // Live-tailing: when live, render from the live `actions` array.
+  // When paused (user scrolled down), freeze the visible list so rows stay stable.
+  const ROW_HEIGHT = 44;
+  const [isLive, setIsLive] = useState(true);
+  const [frozenActions, setFrozenActions] = useState<Action[] | null>(null);
+
+  // Detect when the user scrolls away from the top.
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const onScroll = () => {
+      const atTop = container.scrollTop < ROW_HEIGHT;
+      if (atTop && !isLive) {
+        setIsLive(true);
+        setFrozenActions(null);
+      } else if (!atTop && isLive) {
+        setIsLive(false);
+        setFrozenActions(actions);
+      }
+    };
+
+    container.addEventListener("scroll", onScroll, { passive: true });
+    return () => container.removeEventListener("scroll", onScroll);
+  }, [isLive, actions]);
+
+  const visibleActions = frozenActions ?? actions;
+  const newSincePause = frozenActions ? Math.max(0, actions.length - frozenActions.length) : 0;
+
+  const scrollToLive = useCallback(() => {
+    setFrozenActions(null);
+    setIsLive(true);
+    const container = scrollContainerRef.current;
+    if (container) {
+      container.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }, []);
+
+  const rowVirtualizer = useVirtualizer({
+    count: visibleActions.length,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 15,
+  });
 
   const [addedId, setAddedId] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -645,23 +623,25 @@ export function ActionsStream({ instanceId, onPolicyMutated }: { instanceId?: st
   }, [handleDownload]);
 
   return (
-    <div className="space-y-4">
+    <div className="flex-1 flex flex-col gap-3 min-h-0">
       <div className="flex flex-wrap items-center gap-3">
         <Input
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="Filter by name/id..."
-          className="max-w-sm bg-slate-900/50 border-cyan-500/30 text-cyan-300 placeholder:text-cyan-400/50"
+          placeholder="Filter by name/id…"
+          aria-label="Filter events"
+          autoComplete="off"
+          className="max-w-sm bg-slate-900/50 border-border text-cyan-300 placeholder:text-muted-foreground"
         />
         <Tabs value={allowed} onValueChange={(v: string) => setAllowed(v as "all" | "allowed" | "denied")}>
-          <TabsList className="bg-slate-900/50 border-cyan-500/30">
+          <TabsList className="bg-slate-900/50 border-border">
             <TabsTrigger value="all">All</TabsTrigger>
             <TabsTrigger value="allowed">Allowed</TabsTrigger>
             <TabsTrigger value="denied">Denied</TabsTrigger>
           </TabsList>
         </Tabs>
         <Tabs value={type} onValueChange={(v: string) => setType(isFilterType(v) ? v : "all") }>
-            <TabsList className="overflow-x-auto bg-slate-900/50 border-cyan-500/30">
+            <TabsList className="overflow-x-auto bg-slate-900/50 border-border">
               <TabsTrigger value="all">Any</TabsTrigger>
               <TabsTrigger value="file/open">file/open</TabsTrigger>
               <TabsTrigger value="file/write">file/write</TabsTrigger>
@@ -670,44 +650,31 @@ export function ActionsStream({ instanceId, onPolicyMutated }: { instanceId?: st
               <TabsTrigger value="mcp">mcp</TabsTrigger>
             </TabsList>
           </Tabs>
-        <Badge variant="secondary" className="bg-cyan-500/20 text-cyan-300 border-cyan-500/30">
+        <Badge variant="secondary" className="h-9 border border-border text-muted-foreground">
           {summaryLabel}
         </Badge>
-        {/* Empty-state guidance */}
+        {!isLive && (
+          <button
+            onClick={scrollToLive}
+            className="flex h-9 items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 text-xs font-medium text-emerald-300 cursor-pointer hover:bg-emerald-500/20 hover:border-emerald-400/60 transition-colors"
+          >
+            <ArrowUp className="size-3" />
+            Back to top{newSincePause > 0 ? ` (${newSincePause} new)` : ""}
+          </button>
+        )}
         {actions.length === 0 && (
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="inline-flex h-6 items-center justify-center rounded-md border border-cyan-500/40 bg-slate-950/80 px-2 text-xs font-semibold text-cyan-200">
-                  ?
-                </span>
-              </TooltipTrigger>
-              <TooltipContent hideArrow className="max-w-xs space-y-1 border border-cyan-500/40 bg-slate-950/90 text-cyan-100 shadow-[0_0_12px_rgba(6,182,212,0.25)]">
-                <p>No actions yet. If you expect live data:</p>
-                <ul className="list-disc space-y-1 pl-4 text-cyan-100/80">
-                  <li>Use the Data Source toggle above and switch to Live.</li>
-                  <li>Confirm the WebSocket URL shows ws(s)://host:18080/api.</li>
-                  <li>Generate activity (open a file, run a command, or make an HTTP request).</li>
-                </ul>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          <span className="text-xs text-muted-foreground">No events yet — switch to Live or generate activity.</span>
         )}
       </div>
 
       <TooltipProvider>
         <div
-          ref={paneRef}
-          className="relative flex flex-col overflow-hidden rounded-lg border border-cyan-500/30 bg-slate-900/50 backdrop-blur"
-          style={{ minHeight: MIN_EVENTS_PANE_HEIGHT, height: paneHeight ?? undefined }}
+          className="relative flex-1 flex flex-col overflow-hidden rounded-lg border border-border bg-slate-900/60 min-h-0"
         >
-          {/* Header glow effect */}
-          <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-cyan-400 to-transparent opacity-50" />
-
           <div
             ref={scrollContainerRef}
             data-testid="actions-scroll-area"
-            className="flex-1 overflow-y-auto pr-2 min-h-0"
+            className="flex-1 overflow-y-auto min-h-0"
             style={{ scrollbarGutter: "stable" }}
             onMouseEnter={() => {
               hoverActiveRef.current = true;
@@ -718,54 +685,75 @@ export function ActionsStream({ instanceId, onPolicyMutated }: { instanceId?: st
           >
             <table className="w-full text-sm table-fixed">
               <colgroup>
-                <col className="w-[110px]" />
+                <col className="w-[3px]" />
+                <col className="w-[80px]" />
                 <col className="w-[130px]" />
                 <col className="min-w-0" />
-                <col className="w-[120px]" />
-                <col className="w-[48px]" />
-                <col className="w-[120px]" />
+                <col className="w-[72px]" />
+                <col className="w-[80px]" />
+                <col className="w-[44px]" />
               </colgroup>
-              <thead className="border-b border-cyan-500/20 bg-slate-900/80 sticky top-0 z-10">
+              <thead className="border-b border-border bg-slate-900 sticky top-0 z-10">
                 <tr>
-                  <th className="text-left p-3 text-cyan-400/70 font-medium uppercase text-xs tracking-wider">
-                    <div className="flex items-center gap-2">
+                  <th className="p-0" />
+                  <th className="text-left py-2.5 px-2.5 text-cyan-400 font-medium uppercase text-[11px] tracking-wider">
+                    <div className="flex items-center gap-1.5">
                       <Clock className="w-3 h-3" />
                       Time
                     </div>
                   </th>
-                  <th className="text-left p-3 text-cyan-400/70 font-medium uppercase text-xs tracking-wider">
+                  <th className="text-left py-2.5 px-2 text-cyan-400 font-medium uppercase text-[11px] tracking-wider">
                     Event
                   </th>
-                  <th className="text-left p-3 text-cyan-400/70 font-medium uppercase text-xs tracking-wider">
+                  <th className="text-left py-2.5 px-2 text-cyan-400 font-medium uppercase text-[11px] tracking-wider">
                     Detail
                   </th>
-                  <th className="text-left p-3 text-cyan-400/70 font-medium uppercase text-xs tracking-wider whitespace-nowrap">
-                    <div className="flex items-center gap-2">
-                      <Shield className="w-3 h-3" />
-                      Decision
-                    </div>
+                  <th className="py-2.5 px-2" />
+                  <th className="text-left py-2.5 px-2 text-cyan-400 font-medium uppercase text-[11px] tracking-wider">
+                    Decision
                   </th>
-                  <th aria-hidden="true" className="p-3" />
-                  <th className="text-left p-3 text-cyan-400/70 font-medium uppercase text-xs tracking-wider whitespace-nowrap">Policy</th>
+                  <th className="py-2.5 px-2 text-cyan-400 font-medium uppercase text-[11px] tracking-wider text-center">
+                    #
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                {actions.map((action) => (
-                  <ActionRow
-                    key={action.id}
-                    action={action}
-                    isPending={pendingId === action.id}
-                    isAdded={addedId === action.id}
-                    onAddPolicy={onAddPolicy}
-                  />
-                ))}
+                {rowVirtualizer.getVirtualItems().length > 0 && (
+                  <tr>
+                    <td style={{ height: rowVirtualizer.getVirtualItems()[0].start, padding: 0 }} colSpan={7} />
+                  </tr>
+                )}
+                {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                  const action = visibleActions[virtualRow.index];
+                  return (
+                    <ActionRow
+                      key={action.id}
+                      action={action}
+                      isPending={pendingId === action.id}
+                      isAdded={addedId === action.id}
+                      onAddPolicy={onAddPolicy}
+                    />
+                  );
+                })}
+                {rowVirtualizer.getVirtualItems().length > 0 && (
+                  <tr>
+                    <td
+                      style={{
+                        height: rowVirtualizer.getTotalSize() - (rowVirtualizer.getVirtualItems().at(-1)?.end ?? 0),
+                        padding: 0,
+                      }}
+                      colSpan={7}
+                    />
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
 
           {/* Bottom status bar */}
-          <div className="flex-none px-3 py-2 bg-slate-900/80 border-t border-cyan-500/20 flex items-center justify-between">
-            <div className="flex items-center gap-4 text-[10px] text-cyan-400/50 font-mono uppercase">
+          <div className="flex-none px-3 py-2 bg-slate-900/80 border-t border-border flex items-center justify-between">
+            <div className="flex items-center gap-4 text-xs text-muted-foreground font-mono">
+              {!isLive && <span className="text-amber-400">Paused</span>}
               <span>Total: {actionSummary.total}</span>
               <span className="text-green-400">
                 Allowed: {actionSummary.allowed}
@@ -790,15 +778,6 @@ export function ActionsStream({ instanceId, onPolicyMutated }: { instanceId?: st
                 </TooltipTrigger>
                 <TooltipContent>Download events</TooltipContent>
               </Tooltip>
-              <div className="flex gap-1">
-                {Array.from({ length: 8 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className="w-1 h-3 rounded-sm bg-cyan-400/30 animate-pulse"
-                    style={{ animationDelay: `${i * 150}ms` }}
-                  />
-                ))}
-              </div>
             </div>
           </div>
         </div>

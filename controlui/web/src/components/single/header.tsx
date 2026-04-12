@@ -74,9 +74,9 @@ export default function SingleHeader() {
   }, [submitting, onEnforce, onPermitAll]);
 
   return (
-    <div className="flex items-center justify-between px-4 py-3 border rounded-lg border-cyan-500/30 bg-slate-900/50 backdrop-blur">
+    <div className="flex items-center justify-between px-4 py-2.5 border rounded-lg border-border bg-slate-900/60">
       <div className="flex items-center gap-3">
-        <span className="text-sm font-medium text-cyan-300/90">Enforcement Mode</span>
+        <span className="text-sm font-semibold text-cyan-300">Enforcement Mode</span>
         {showSubmitting && <span className="text-xs text-cyan-400/60">Applying…</span>}
       </div>
       <div className="flex items-center gap-3">
@@ -84,7 +84,7 @@ export default function SingleHeader() {
           value={enforcementMode === "enforce" ? "enforce" : "permit-all"}
           onValueChange={handleEnforcementChange}
         >
-          <TabsList className="bg-slate-900/80 border border-cyan-500/30">
+          <TabsList className="bg-slate-900/50 border border-border">
             <TabsTrigger
               value="permit-all"
               disabled={submitting}

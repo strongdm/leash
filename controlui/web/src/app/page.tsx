@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import DataSourceControls from "@/components/nav/data-source-controls";
+import type { PageTab } from "@/components/nav/data-source-controls";
 import SingleHeader from "@/components/single/header";
 import PromptBanner from "@/components/single/prompt-banner";
-import CedarEditorCollapsible from "@/components/policy/cedar-editor-collapsible";
+import CedarEditor from "@/components/policy/cedar-editor";
 import { ActionsStream } from "@/components/actions/stream";
 import PolicyBlockCard from "@/components/policy/policy-block-card";
 import { fetchPolicyLines, type PolicyLine } from "@/lib/policy/api";
@@ -13,7 +14,7 @@ import { useLatestPolicySnapshot, SimulationProvider } from "@/lib/mock/sim";
 import { PolicyQueryProvider } from "@/lib/policy/query-provider";
 import { PolicyBlocksProvider } from "@/lib/policy/policy-blocks-context";
 
-function ConsoleContent() {
+function ConsoleContent({ activeTab }: { activeTab: PageTab }) {
   const [policyLines, setPolicyLines] = useState<PolicyLine[]>([]);
   const latestRequestId = useRef(0);
   const latestPolicySnapshot = useLatestPolicySnapshot();
@@ -45,18 +46,19 @@ function ConsoleContent() {
 
   const handlePolicyRemoved = useCallback((id: string) => {
     setPolicyLines((prev) => prev.filter((line) => line.id !== id));
-    void loadLines();
-  }, [loadLines]);
+  }, []);
 
   return (
     <SingleProvider>
-      <section className="space-y-4">
-        <CedarEditorCollapsible defaultOpen={false} />
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-          <div className="order-2 lg:order-1 lg:col-span-2">
-            <ActionsStream onPolicyMutated={loadLines} />
+      <section className="flex-1 flex flex-col gap-3 min-h-0">
+        <div className={activeTab !== "events" ? "hidden" : "flex-1 flex flex-col min-h-0"}>
+          <ActionsStream onPolicyMutated={loadLines} />
+        </div>
+        <div className={activeTab !== "policy" ? "hidden" : "grid grid-cols-1 gap-4 lg:grid-cols-3"}>
+          <div className="lg:col-span-2">
+            <CedarEditor />
           </div>
-          <div className="order-1 space-y-3 lg:order-2">
+          <div className="space-y-3">
             <SingleHeader />
             {policyLines.map((line) => (
               <PolicyBlockCard key={line.id} line={line} onRemoved={handlePolicyRemoved} />
@@ -70,13 +72,15 @@ function ConsoleContent() {
 }
 
 export default function SingleConsolePage() {
+  const [activeTab, setActiveTab] = useState<PageTab>("events");
+
   return (
     <SimulationProvider initialMode="live" persist={false}>
       <PolicyQueryProvider>
         <PolicyBlocksProvider>
-          <main className="space-y-4 p-6">
-            <DataSourceControls />
-            <ConsoleContent />
+          <main className="flex-1 flex flex-col gap-3 px-4 py-3 min-h-0">
+            <DataSourceControls activeTab={activeTab} onTabChange={setActiveTab} />
+            <ConsoleContent activeTab={activeTab} />
           </main>
         </PolicyBlocksProvider>
       </PolicyQueryProvider>

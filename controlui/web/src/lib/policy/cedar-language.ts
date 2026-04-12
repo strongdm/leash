@@ -1,96 +1,38 @@
-import type { Monaco } from "@monaco-editor/react";
+import Prism from "prismjs";
 
 export const CEDAR_LANGUAGE_ID = "cedar";
 
-let languageRegistered = false;
-
-export function ensureCedarLanguage(monaco: Monaco) {
-  if (languageRegistered) {
+/**
+ * Register a lightweight Prism grammar for the Cedar policy language.
+ * Called once before the editor mounts.
+ */
+export function ensureCedarLanguage() {
+  if (Prism.languages[CEDAR_LANGUAGE_ID]) {
     return;
   }
 
-  monaco.languages.register({ id: CEDAR_LANGUAGE_ID });
-
-  monaco.languages.setLanguageConfiguration(CEDAR_LANGUAGE_ID, {
-    comments: {
-      lineComment: "//",
-      blockComment: ["/*", "*/"],
+  Prism.languages[CEDAR_LANGUAGE_ID] = {
+    comment: [
+      { pattern: /\/\/.*/, greedy: true },
+      { pattern: /\/\*[\s\S]*?\*\//, greedy: true },
+    ],
+    entity: {
+      pattern: /\w[\w.]*::"[^"]*"/,
+      greedy: true,
     },
-    brackets: [
-      ["{", "}"],
-      ["[", "]"],
-      ["(", ")"],
-    ],
-    autoClosingPairs: [
-      { open: "{", close: "}" },
-      { open: "[", close: "]" },
-      { open: "(", close: ")" },
-      { open: '"', close: '"', notIn: ["string"] },
-    ],
-    surroundingPairs: [
-      { open: "{", close: "}" },
-      { open: "[", close: "]" },
-      { open: "(", close: ")" },
-      { open: '"', close: '"' },
-    ],
-    wordPattern: /(-?\d*\.?\d\w*)|[^\s\(\)\{\}\[\],;]+/g,
-    indentationRules: {
-      increaseIndentPattern: /^.*\{[^}]*$/,
-      decreaseIndentPattern: /^\s*\}/,
-    },
-  });
+    keyword: /\b(?:permit|forbid|when|unless|principal|action|resource|context|in|like|if|then|else|has)\b/,
+    string: { pattern: /"(?:[^"\\]|\\.)*"/, greedy: true },
+    number: /\b\d+\b/,
+    operator: /==|!=|&&|\|\||<=|>=|<|>/,
+    punctuation: /[{}[\]();,]/,
+  };
+}
 
-  monaco.languages.setMonarchTokensProvider(CEDAR_LANGUAGE_ID, {
-    defaultToken: "",
-    tokenPostfix: ".cedar",
-    brackets: [
-      { open: "{", close: "}", token: "delimiter.curly" },
-      { open: "[", close: "]", token: "delimiter.square" },
-      { open: "(", close: ")", token: "delimiter.parenthesis" },
-    ],
-    keywords: ["permit", "forbid", "when", "unless", "in", "like", "and", "or"],
-    operators: ["==", "!=", "in", "like", "and", "or"],
-    symbols: /[=><!~?:&|+\-*\/\^%]+/,
-    tokenizer: {
-      root: [
-        { include: "@whitespace" },
-        [/[(){}\[\]]/, "@brackets"],
-        [/@symbols/, "operator"],
-        [/Action::"[^"]*"/, "type"],
-        [/File::"[^"]*"/, "type"],
-        [/Dir::"[^"]*"/, "type"],
-        [/Host::"[^"]*"/, "type"],
-        [/Net::DnsZone::"[^"]*"/, "type"],
-        [/MCP::Server::"[^"]*"/, "type"],
-        [/MCP::Tool::"[^"]*"/, "type"],
-        [/context\.(hostname|header|value)/, "predefined"],
-        [/[a-zA-Z_][\w\.:]*/, {
-          cases: {
-            "@keywords": "keyword",
-            "@default": "identifier",
-          },
-        }],
-        [/"([^"\\]|\\.)*$/, "string.invalid"],
-        [/"/, { token: "string", next: "@string" }],
-        [/\d+/, "number"],
-      ],
-      whitespace: [
-        [/[ \t\r\n]+/, "white"],
-        [/\/\*/, "comment", "@comment"],
-        [/\/\/.*/, "comment"],
-      ],
-      comment: [
-        [/[^\/*]+/, "comment"],
-        [/\*\//, "comment", "@pop"],
-        [/[/\*]/, "comment"],
-      ],
-      string: [
-        [/[^\\"]+/, "string"],
-        [/\\./, "string.escape"],
-        [/"/, { token: "string", next: "@pop" }],
-      ],
-    },
-  });
-
-  languageRegistered = true;
+/**
+ * Highlight Cedar code using the registered Prism grammar.
+ * Returns an HTML string for use with react-simple-code-editor.
+ */
+export function highlightCedar(code: string): string {
+  ensureCedarLanguage();
+  return Prism.highlight(code, Prism.languages[CEDAR_LANGUAGE_ID], CEDAR_LANGUAGE_ID);
 }
