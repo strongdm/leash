@@ -689,10 +689,10 @@ export function ActionsStream({ instanceId, onPolicyMutated }: { instanceId?: st
         {!isLive && (
           <button
             onClick={scrollToLive}
-            className="flex h-9 items-center gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 text-xs font-medium text-amber-300 cursor-pointer hover:bg-amber-500/20 hover:border-amber-400/60 transition-colors"
+            className="flex h-9 items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 text-xs font-medium text-emerald-300 cursor-pointer hover:bg-emerald-500/20 hover:border-emerald-400/60 transition-colors"
           >
             <ArrowUp className="size-3" />
-            Resume{newSincePause > 0 ? ` (${newSincePause} new)` : ""}
+            Back to top{newSincePause > 0 ? ` (${newSincePause} new)` : ""}
           </button>
         )}
         {actions.length === 0 && (
