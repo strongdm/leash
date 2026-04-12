@@ -82,7 +82,7 @@ export default function DataSourceControls({ activeTab, onTabChange }: Props) {
         </div>
       </div>
       <div className="flex items-center gap-3">
-        <Badge variant="secondary" className={`border ${statusBadge.tone}`}>
+        <Badge variant="secondary" className={`h-9 border ${statusBadge.tone}`}>
           {statusBadge.label}
         </Badge>
         <Tabs value={mode} onValueChange={(value) => setMode(value as "sim" | "live")}>

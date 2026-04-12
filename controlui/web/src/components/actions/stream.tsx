@@ -686,7 +686,7 @@ export function ActionsStream({ instanceId, onPolicyMutated }: { instanceId?: st
               <TabsTrigger value="mcp">mcp</TabsTrigger>
             </TabsList>
           </Tabs>
-        <Badge variant="secondary" className="bg-cyan-500/20 text-cyan-300 border-cyan-500/30">
+        <Badge variant="secondary" className="h-9 bg-cyan-500/20 text-cyan-300 border-cyan-500/30">
           {summaryLabel}
         </Badge>
         {/* Empty-state guidance */}
