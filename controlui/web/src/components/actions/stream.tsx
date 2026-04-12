@@ -178,24 +178,6 @@ const ActionRow = memo(({
         <div className="truncate">{renderDetail(action)}</div>
       </td>
       <td className="py-2 px-2 whitespace-nowrap align-middle">
-        <span className={`inline-flex items-center gap-1.5 text-[11px] font-medium ${action.allowed ? "text-green-400" : "text-red-400"}`}>
-          <span className={`h-1.5 w-1.5 rounded-full ${action.allowed ? "bg-green-400" : "bg-red-400"}`} />
-          {action.allowed ? "Allow" : "Deny"}
-        </span>
-      </td>
-      <td className="py-2 px-2 align-middle text-center whitespace-nowrap">
-        {repeats > 1 ? (
-          <span
-            data-testid="repeat-count"
-            className="inline-flex items-center justify-center rounded-md bg-cyan-500/10 px-1.5 py-0.5 text-[10px] font-mono font-medium text-cyan-400/70"
-          >
-            ×{repeats}
-          </span>
-        ) : (
-          <span data-testid="repeat-count" className="text-[10px] text-cyan-500/30 font-mono">1</span>
-        )}
-      </td>
-      <td className="py-2 px-2 whitespace-nowrap align-middle">
         <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -236,6 +218,24 @@ const ActionRow = memo(({
             </TooltipContent>
           </Tooltip>
         </div>
+      </td>
+      <td className="py-2 px-2 whitespace-nowrap align-middle">
+        <span className={`inline-flex items-center gap-1.5 text-[11px] font-medium ${action.allowed ? "text-green-400" : "text-red-400"}`}>
+          <span className={`h-1.5 w-1.5 rounded-full ${action.allowed ? "bg-green-400" : "bg-red-400"}`} />
+          {action.allowed ? "Allow" : "Deny"}
+        </span>
+      </td>
+      <td className="py-2 px-2 align-middle text-center whitespace-nowrap">
+        {repeats > 1 ? (
+          <span
+            data-testid="repeat-count"
+            className="inline-flex items-center justify-center rounded-md bg-cyan-500/10 px-1.5 py-0.5 text-xs font-mono text-cyan-400/80"
+          >
+            {repeats}
+          </span>
+        ) : (
+          <span data-testid="repeat-count" className="text-xs text-cyan-500/25 font-mono">1</span>
+        )}
       </td>
     </tr>
   );
@@ -746,9 +746,9 @@ export function ActionsStream({ instanceId, onPolicyMutated }: { instanceId?: st
                 <col className="w-[80px]" />
                 <col className="w-[130px]" />
                 <col className="min-w-0" />
+                <col className="w-[72px]" />
                 <col className="w-[80px]" />
                 <col className="w-[44px]" />
-                <col className="w-[72px]" />
               </colgroup>
               <thead className="border-b border-cyan-500/20 bg-slate-900 sticky top-0 z-10">
                 <tr>
@@ -765,13 +765,13 @@ export function ActionsStream({ instanceId, onPolicyMutated }: { instanceId?: st
                   <th className="text-left py-2.5 px-2 text-cyan-400 font-medium uppercase text-[11px] tracking-wider">
                     Detail
                   </th>
+                  <th className="py-2.5 px-2" />
                   <th className="text-left py-2.5 px-2 text-cyan-400 font-medium uppercase text-[11px] tracking-wider">
                     Decision
                   </th>
                   <th className="py-2.5 px-2 text-cyan-400 font-medium uppercase text-[11px] tracking-wider text-center">
                     #
                   </th>
-                  <th className="py-2.5 px-2" />
                 </tr>
               </thead>
               <tbody>
