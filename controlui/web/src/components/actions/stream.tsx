@@ -35,18 +35,6 @@ const typeIconFor = (value: ActionType): React.ReactNode => typeIcon[value] ?? <
 const MIN_EVENTS_PANE_HEIGHT = 650;
 const VIEWPORT_GUTTER_PX = 12;
 
-// Static equalizer bars — hoisted to avoid recreating 8 elements every render.
-const equalizerBars = (
-  <div className="flex gap-1">
-    {Array.from({ length: 8 }).map((_, i) => (
-      <div
-        key={i}
-        className="w-1 h-3 rounded-sm bg-cyan-400/30 animate-pulse"
-        style={{ animationDelay: `${i * 150}ms` }}
-      />
-    ))}
-  </div>
-);
 const PROJECT_FALLBACK_SLUG = "project";
 
 function slugifyForFilename(value: string): string {
@@ -818,7 +806,6 @@ export function ActionsStream({ instanceId, onPolicyMutated }: { instanceId?: st
                 </TooltipTrigger>
                 <TooltipContent>Download events</TooltipContent>
               </Tooltip>
-              {equalizerBars}
             </div>
           </div>
         </div>
