@@ -180,14 +180,7 @@ const ActionRow = memo(({
         </span>
       </td>
       <td className="p-2.5 align-middle text-xs min-w-0">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div className="truncate cursor-default">{renderDetail(action)}</div>
-          </TooltipTrigger>
-          <TooltipContent className="max-w-2xl">
-            {renderDetail(action)}
-          </TooltipContent>
-        </Tooltip>
+        <div className="truncate">{renderDetail(action)}</div>
       </td>
       <td className="p-2.5 whitespace-nowrap align-middle">
         {action.allowed ? (
