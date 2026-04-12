@@ -741,28 +741,28 @@ export function ActionsStream({ instanceId, onPolicyMutated }: { instanceId?: st
                 <col className="w-[48px]" />
                 <col className="w-[120px]" />
               </colgroup>
-              <thead className="border-b border-cyan-500/20 bg-slate-900/80 sticky top-0 z-10">
+              <thead className="border-b border-cyan-500/20 bg-slate-900 sticky top-0 z-10">
                 <tr>
-                  <th className="text-left p-3 text-cyan-400/70 font-medium uppercase text-xs tracking-wider">
+                  <th className="text-left p-3 text-cyan-400 font-medium uppercase text-xs tracking-wider">
                     <div className="flex items-center gap-2">
                       <Clock className="w-3 h-3" />
                       Time
                     </div>
                   </th>
-                  <th className="text-left p-3 text-cyan-400/70 font-medium uppercase text-xs tracking-wider">
+                  <th className="text-left p-3 text-cyan-400 font-medium uppercase text-xs tracking-wider">
                     Event
                   </th>
-                  <th className="text-left p-3 text-cyan-400/70 font-medium uppercase text-xs tracking-wider">
+                  <th className="text-left p-3 text-cyan-400 font-medium uppercase text-xs tracking-wider">
                     Detail
                   </th>
-                  <th className="text-left p-3 text-cyan-400/70 font-medium uppercase text-xs tracking-wider whitespace-nowrap">
+                  <th className="text-left p-3 text-cyan-400 font-medium uppercase text-xs tracking-wider whitespace-nowrap">
                     <div className="flex items-center gap-2">
                       <Shield className="w-3 h-3" />
                       Decision
                     </div>
                   </th>
                   <th aria-hidden="true" className="p-3" />
-                  <th className="text-left p-3 text-cyan-400/70 font-medium uppercase text-xs tracking-wider whitespace-nowrap">Policy</th>
+                  <th className="text-left p-3 text-cyan-400 font-medium uppercase text-xs tracking-wider whitespace-nowrap">Policy</th>
                 </tr>
               </thead>
               <tbody>
