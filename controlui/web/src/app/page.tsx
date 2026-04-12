@@ -51,22 +51,20 @@ function ConsoleContent({ activeTab }: { activeTab: PageTab }) {
   return (
     <SingleProvider>
       <section className="space-y-4">
-        {activeTab === "events" && (
+        <div className={activeTab !== "events" ? "hidden" : undefined}>
           <ActionsStream onPolicyMutated={loadLines} />
-        )}
-        {activeTab === "policy" && (
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-            <div className="lg:col-span-2">
-              <CedarEditor />
-            </div>
-            <div className="space-y-3">
-              <SingleHeader />
-              {policyLines.map((line) => (
-                <PolicyBlockCard key={line.id} line={line} onRemoved={handlePolicyRemoved} />
-              ))}
-            </div>
+        </div>
+        <div className={activeTab !== "policy" ? "hidden" : "grid grid-cols-1 gap-4 lg:grid-cols-3"}>
+          <div className="lg:col-span-2">
+            <CedarEditor />
           </div>
-        )}
+          <div className="space-y-3">
+            <SingleHeader />
+            {policyLines.map((line) => (
+              <PolicyBlockCard key={line.id} line={line} onRemoved={handlePolicyRemoved} />
+            ))}
+          </div>
+        </div>
         <PromptBanner />
       </section>
     </SingleProvider>
