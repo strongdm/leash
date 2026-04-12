@@ -166,7 +166,6 @@ export default function CedarEditor({ showHeader = true }: Props) {
           </div>
           <TooltipProvider>
             <div className="flex items-center gap-2">
-              {notice && <span className="text-xs text-green-400 font-medium">{notice}</span>}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button

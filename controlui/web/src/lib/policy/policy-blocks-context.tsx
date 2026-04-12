@@ -37,7 +37,6 @@ type PolicyBlocksContextValue = {
 
   // UI state (from reducer)
   editorDraft: string;
-  editorOpen: boolean;
   notice: string | null;
 
   // Mutation states
@@ -46,11 +45,7 @@ type PolicyBlocksContextValue = {
 
   // Actions
   setEditorDraft: (draft: string) => void;
-  toggleEditor: () => void;
-  openEditor: () => void;
-  closeEditor: () => void;
   showNotice: (message: string) => void;
-  clearNotice: () => void;
 
   // Mutations
   persistCedar: (cedar?: string, force?: boolean) => Promise<boolean>;
@@ -94,25 +89,9 @@ export function PolicyBlocksProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "SET_DRAFT", payload: draft });
   }, []);
 
-  const toggleEditor = useCallback(() => {
-    dispatch({ type: "TOGGLE_EDITOR" });
-  }, []);
-
-  const openEditor = useCallback(() => {
-    dispatch({ type: "OPEN_EDITOR" });
-  }, []);
-
-  const closeEditor = useCallback(() => {
-    dispatch({ type: "CLOSE_EDITOR" });
-  }, []);
-
   const showNotice = useCallback((message: string) => {
     dispatch({ type: "SHOW_NOTICE", payload: message });
     setTimeout(() => dispatch({ type: "CLEAR_NOTICE" }), 3000);
-  }, []);
-
-  const clearNotice = useCallback(() => {
-    dispatch({ type: "CLEAR_NOTICE" });
   }, []);
 
   const selectDraftFromData = useCallback((payload: {
@@ -307,7 +286,6 @@ export function PolicyBlocksProvider({ children }: { children: ReactNode }) {
 
     // UI state
     editorDraft: uiState.editorDraft,
-    editorOpen: uiState.editorOpen,
     notice: uiState.notice,
 
     // Mutation states
@@ -316,11 +294,7 @@ export function PolicyBlocksProvider({ children }: { children: ReactNode }) {
 
     // Actions
     setEditorDraft,
-    toggleEditor,
-    openEditor,
-    closeEditor,
     showNotice,
-    clearNotice,
 
     // Mutations
     persistCedar,
