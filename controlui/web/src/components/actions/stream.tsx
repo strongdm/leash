@@ -152,7 +152,7 @@ const ActionRow = memo(({
   const repeats = action.repeatCount ?? 1;
 
   return (
-    <tr className="border-b border-cyan-500/10 transition-all duration-500 hover:bg-cyan-500/5">
+    <tr className="action-row border-b border-cyan-500/10 transition-all duration-500 hover:bg-cyan-500/5">
       <td className="p-3 align-middle text-cyan-300/60 text-xs">{timeAgo(action.ts)}</td>
       <td className="p-2.5 align-middle whitespace-nowrap">
         <span className="inline-flex items-center gap-1 text-slate-300">
