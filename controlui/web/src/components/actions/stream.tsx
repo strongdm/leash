@@ -8,7 +8,7 @@ import { timeAgo } from "@/lib/time";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Network, FileText, Terminal, List, Globe, Shield, Clock, Database, MessageSquare, Bell, Power, Check, Plus, X, Download } from "lucide-react";
+import { Network, FileText, Terminal, List, Globe, Shield, Clock, Database, MessageSquare, Bell, Power, Check, Plus, X, Download, ArrowUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { usePolicyBlocksContext } from "@/lib/policy/policy-blocks-context";
@@ -500,9 +500,46 @@ export function ActionsStream({ instanceId, onPolicyMutated }: { instanceId?: st
     ? `${actions.length} events`
     : `${actions.length} of ${state.recentActions.length} events`;
 
+  // Live-tailing: when live, render from the live `actions` array.
+  // When paused (user scrolled down), freeze the visible list so rows stay stable.
   const ROW_HEIGHT = 44;
+  const [isLive, setIsLive] = useState(true);
+  const [frozenActions, setFrozenActions] = useState<Action[] | null>(null);
+
+  // Detect when the user scrolls away from the top.
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const onScroll = () => {
+      const atTop = container.scrollTop < ROW_HEIGHT;
+      if (atTop && !isLive) {
+        setIsLive(true);
+        setFrozenActions(null);
+      } else if (!atTop && isLive) {
+        setIsLive(false);
+        setFrozenActions(actions);
+      }
+    };
+
+    container.addEventListener("scroll", onScroll, { passive: true });
+    return () => container.removeEventListener("scroll", onScroll);
+  }, [isLive, actions]);
+
+  const visibleActions = frozenActions ?? actions;
+  const newSincePause = frozenActions ? Math.max(0, actions.length - frozenActions.length) : 0;
+
+  const scrollToLive = useCallback(() => {
+    setFrozenActions(null);
+    setIsLive(true);
+    const container = scrollContainerRef.current;
+    if (container) {
+      container.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }, []);
+
   const rowVirtualizer = useVirtualizer({
-    count: actions.length,
+    count: visibleActions.length,
     getScrollElement: () => scrollContainerRef.current,
     estimateSize: () => ROW_HEIGHT,
     overscan: 15,
@@ -670,6 +707,15 @@ export function ActionsStream({ instanceId, onPolicyMutated }: { instanceId?: st
         <Badge variant="secondary" className="h-9 bg-cyan-500/20 text-cyan-300 border-cyan-500/30">
           {summaryLabel}
         </Badge>
+        {!isLive && (
+          <button
+            onClick={scrollToLive}
+            className="flex h-9 items-center gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 text-xs font-medium text-amber-300 cursor-pointer hover:bg-amber-500/20 hover:border-amber-400/60 transition-colors"
+          >
+            <ArrowUp className="size-3" />
+            Resume{newSincePause > 0 ? ` (${newSincePause} new)` : ""}
+          </button>
+        )}
         {/* Empty-state guidance */}
         {actions.length === 0 && (
           <TooltipProvider>
@@ -700,6 +746,8 @@ export function ActionsStream({ instanceId, onPolicyMutated }: { instanceId?: st
         >
           {/* Header glow effect */}
           <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-cyan-400 to-transparent opacity-50" />
+
+
 
           <div
             ref={scrollContainerRef}
@@ -753,7 +801,7 @@ export function ActionsStream({ instanceId, onPolicyMutated }: { instanceId?: st
                   </tr>
                 )}
                 {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                  const action = actions[virtualRow.index];
+                  const action = visibleActions[virtualRow.index];
                   return (
                     <ActionRow
                       key={action.id}
@@ -782,6 +830,7 @@ export function ActionsStream({ instanceId, onPolicyMutated }: { instanceId?: st
           {/* Bottom status bar */}
           <div className="flex-none px-3 py-2 bg-slate-900/80 border-t border-cyan-500/20 flex items-center justify-between">
             <div className="flex items-center gap-4 text-[10px] text-cyan-400/50 font-mono uppercase">
+              {!isLive && <span className="text-amber-400">Paused</span>}
               <span>Total: {actionSummary.total}</span>
               <span className="text-green-400">
                 Allowed: {actionSummary.allowed}
