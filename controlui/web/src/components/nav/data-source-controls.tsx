@@ -5,7 +5,14 @@ import { useDataSource } from "@/lib/mock/sim";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-export default function DataSourceControls() {
+export type PageTab = "events" | "policy";
+
+type Props = {
+  activeTab?: PageTab;
+  onTabChange?: (tab: PageTab) => void;
+};
+
+export default function DataSourceControls({ activeTab, onTabChange }: Props) {
   const { mode, setMode, status, error, wsUrl } = useDataSource();
 
   const statusBadge = useMemo(() => {
@@ -84,6 +91,14 @@ export default function DataSourceControls() {
             <TabsTrigger value="live">Live</TabsTrigger>
           </TabsList>
         </Tabs>
+        {activeTab && onTabChange && (
+          <Tabs value={activeTab} onValueChange={(v) => onTabChange(v as PageTab)}>
+            <TabsList className="bg-slate-900/50 border border-cyan-500/30">
+              <TabsTrigger value="events">Events</TabsTrigger>
+              <TabsTrigger value="policy">Policy</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        )}
       </div>
     </div>
   );
