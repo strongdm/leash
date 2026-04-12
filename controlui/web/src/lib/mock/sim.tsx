@@ -9,8 +9,20 @@ import React, {
   useReducer,
   useState,
 } from "react";
-import { faker } from "@faker-js/faker";
+import type { Faker } from "@faker-js/faker";
 import { Action, ActionType, Instance, SimulationState } from "./types";
+
+// Lazy-loaded faker instance — only fetched when simulation mode generates actions.
+// The import is kicked off when sim mode activates; until it resolves, fallback strings are used.
+let _faker: Faker | null = null;
+let _fakerLoading = false;
+function preloadFaker(): void {
+  if (_faker || _fakerLoading) return;
+  _fakerLoading = true;
+  import("@faker-js/faker").then((mod) => {
+    _faker = mod.faker;
+  });
+}
 import { id, now, pick } from "./random";
 import type { PoliciesResponse, PolicyLine } from "@/lib/policy/api";
 
@@ -294,24 +306,27 @@ function randomAction(inst: Instance, ts: number): Action {
     allowed,
   };
 
+  const f = _faker;
+  const rnd = () => Math.random().toString(36).slice(2, 8);
+
   switch (type) {
     case "file/open":
-      action.name = faker.system.fileName();
+      action.name = f ? f.system.fileName() : `file-${rnd()}.txt`;
       break;
     case "file/write":
-      action.name = faker.system.filePath();
+      action.name = f ? f.system.filePath() : `/tmp/${rnd()}.log`;
       break;
     case "net/connect":
-      action.name = faker.internet.url({ protocol: "https" });
+      action.name = f ? f.internet.url({ protocol: "https" }) : `https://${rnd()}.example.com`;
       break;
     case "proc/exec":
-      action.name = faker.system.fileName();
+      action.name = f ? f.system.fileName() : `proc-${rnd()}`;
       break;
     case "fs/list":
-      action.name = faker.system.directoryPath();
+      action.name = f ? f.system.directoryPath() : `/var/${rnd()}`;
       break;
     case "dns/resolve":
-      action.name = faker.internet.domainName();
+      action.name = f ? f.internet.domainName() : `${rnd()}.example.com`;
       break;
     default: {
       if (type.startsWith("mcp/")) {
@@ -747,6 +762,7 @@ export function SimulationProvider({ children, initialMode = "sim", persist = tr
   useEffect(() => {
     if (modeState !== "sim") return;
 
+    preloadFaker();
     dispatch({ type: "reset", ts: now() });
     identityRegistry.reset();
     setLatestPolicySnapshot(null);
