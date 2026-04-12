@@ -723,7 +723,7 @@ export function ActionsStream({ instanceId, onPolicyMutated }: { instanceId?: st
           <div
             ref={scrollContainerRef}
             data-testid="actions-scroll-area"
-            className="flex-1 overflow-y-auto pr-2 min-h-0"
+            className="flex-1 overflow-y-auto min-h-0"
             style={{ scrollbarGutter: "stable" }}
             onMouseEnter={() => {
               hoverActiveRef.current = true;
