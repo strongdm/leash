@@ -32,6 +32,14 @@ const typeIcon: Record<ActionType, React.ReactNode> = {
 
 const typeIconFor = (value: ActionType): React.ReactNode => typeIcon[value] ?? <List className="size-3" />;
 
+// Color scheme per event category for the type badge
+const typeBadgeClass = (t: ActionType): string => {
+  if (t.startsWith("file/") || t === "fs/list") return "bg-blue-500/15 text-blue-300 border-blue-500/25";
+  if (t === "net/connect" || t === "dns/resolve") return "bg-purple-500/15 text-purple-300 border-purple-500/25";
+  if (t === "proc/exec") return "bg-amber-500/15 text-amber-300 border-amber-500/25";
+  return "bg-cyan-500/15 text-cyan-300 border-cyan-500/25"; // mcp/*
+};
+
 const MIN_EVENTS_PANE_HEIGHT = 650;
 const VIEWPORT_GUTTER_PX = 12;
 
@@ -154,61 +162,52 @@ const ActionRow = memo(({
   const repeats = action.repeatCount ?? 1;
 
   return (
-    <tr className="border-b border-cyan-500/10 hover:bg-cyan-500/5">
-      <td className="p-3 align-middle text-cyan-300/60 text-xs">{timeAgo(action.ts)}</td>
-      <td className="p-2.5 align-middle whitespace-nowrap">
-        <span className="inline-flex items-center gap-1 text-slate-300">
+    <tr className="group border-b border-cyan-500/8 hover:bg-cyan-500/5">
+      {/* Left edge accent */}
+      <td className="w-[3px] p-0">
+        <div className={`h-full w-[3px] ${action.allowed ? "bg-green-500/40" : "bg-red-500/50"}`} />
+      </td>
+      <td className="py-2 px-2.5 align-middle text-cyan-400/50 text-[11px] font-mono tabular-nums whitespace-nowrap">{timeAgo(action.ts)}</td>
+      <td className="py-2 px-2 align-middle whitespace-nowrap">
+        <span className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-medium ${typeBadgeClass(action.type)}`}>
           {typeIconFor(action.type)}
-          <span className="text-xs whitespace-nowrap">{action.type}</span>
-          {action.notification && (
-            <Badge className="bg-amber-500/20 text-amber-200 border-amber-500/40 px-1 text-[10px]">
-              notify
-            </Badge>
-          )}
+          {action.type}
         </span>
       </td>
-      <td className="p-2.5 align-middle text-xs min-w-0">
+      <td className="py-2 px-2 align-middle text-xs min-w-0">
         <div className="truncate">{renderDetail(action)}</div>
       </td>
-      <td className="p-2.5 whitespace-nowrap align-middle">
-        {action.allowed ? (
-          <div className="flex items-center gap-2">
-            <span className="inline-flex h-2 w-2 rounded-full bg-green-400" />
-            <span className="text-xs uppercase tracking-wide font-medium text-green-400">
-              Allowed
-            </span>
-          </div>
-        ) : (
-          <div className="flex items-center gap-2">
-            <span className="inline-flex h-2 w-2 rounded-full bg-red-400" />
-            <span className="text-xs uppercase tracking-wide font-medium text-red-400">
-              Denied
-            </span>
-          </div>
-        )}
-      </td>
-      <td className="p-2.5 align-middle text-center">
-        <span
-          data-testid="repeat-count"
-          className="inline-flex min-w-[28px] items-center justify-center rounded-full border border-cyan-500/20 bg-slate-900/60 px-2 py-0.5 text-[10px] font-semibold"
-          style={{ color: "color-mix(in oklab, var(--color-cyan-400) 70%, transparent)" }}
-        >
-          {repeats}
+      <td className="py-2 px-2 whitespace-nowrap align-middle">
+        <span className={`inline-flex items-center gap-1.5 text-[11px] font-medium ${action.allowed ? "text-green-400" : "text-red-400"}`}>
+          <span className={`h-1.5 w-1.5 rounded-full ${action.allowed ? "bg-green-400" : "bg-red-400"}`} />
+          {action.allowed ? "Allow" : "Deny"}
         </span>
       </td>
-      <td className="p-2.5 whitespace-nowrap align-middle">
-        <div className="flex items-center gap-1">
+      <td className="py-2 px-2 align-middle text-center whitespace-nowrap">
+        {repeats > 1 ? (
+          <span
+            data-testid="repeat-count"
+            className="inline-flex items-center justify-center rounded-md bg-cyan-500/10 px-1.5 py-0.5 text-[10px] font-mono font-medium text-cyan-400/70"
+          >
+            ×{repeats}
+          </span>
+        ) : (
+          <span data-testid="repeat-count" className="text-[10px] text-cyan-500/30 font-mono">1</span>
+        )}
+      </td>
+      <td className="py-2 px-2 whitespace-nowrap align-middle">
+        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 size="icon"
                 variant="ghost"
-                className="text-green-400 hover:text-green-300 hover:bg-green-500/10 h-7 w-7"
+                className="text-green-400/70 hover:text-green-300 hover:bg-green-500/10 h-6 w-6"
                 aria-label="Add Allow"
                 onClick={() => onAddPolicy(action, "permit")}
                 disabled={isPending || (action.type === "mcp/call" && !action.tool)}
               >
-                {isAdded ? <Check className="size-4" /> : <Plus className="size-4" />}
+                {isAdded ? <Check className="size-3.5" /> : <Plus className="size-3.5" />}
               </Button>
             </TooltipTrigger>
             <TooltipContent>
@@ -222,12 +221,12 @@ const ActionRow = memo(({
               <Button
                 size="icon"
                 variant="ghost"
-                className="text-red-400 hover:text-red-300 hover:bg-red-500/10 h-7 w-7"
+                className="text-red-400/70 hover:text-red-300 hover:bg-red-500/10 h-6 w-6"
                 aria-label="Add Deny"
                 onClick={() => onAddPolicy(action, "forbid")}
                 disabled={isPending || (action.type === "mcp/call" && !action.tool)}
               >
-                <X className="size-4" />
+                <X className="size-3.5" />
               </Button>
             </TooltipTrigger>
             <TooltipContent>
@@ -763,41 +762,42 @@ export function ActionsStream({ instanceId, onPolicyMutated }: { instanceId?: st
           >
             <table className="w-full text-sm table-fixed">
               <colgroup>
-                <col className="w-[110px]" />
+                <col className="w-[3px]" />
+                <col className="w-[80px]" />
                 <col className="w-[130px]" />
                 <col className="min-w-0" />
-                <col className="w-[120px]" />
-                <col className="w-[48px]" />
-                <col className="w-[120px]" />
+                <col className="w-[80px]" />
+                <col className="w-[44px]" />
+                <col className="w-[72px]" />
               </colgroup>
               <thead className="border-b border-cyan-500/20 bg-slate-900 sticky top-0 z-10">
                 <tr>
-                  <th className="text-left p-3 text-cyan-400 font-medium uppercase text-xs tracking-wider">
-                    <div className="flex items-center gap-2">
+                  <th className="p-0" />
+                  <th className="text-left py-2.5 px-2.5 text-cyan-400 font-medium uppercase text-[11px] tracking-wider">
+                    <div className="flex items-center gap-1.5">
                       <Clock className="w-3 h-3" />
                       Time
                     </div>
                   </th>
-                  <th className="text-left p-3 text-cyan-400 font-medium uppercase text-xs tracking-wider">
+                  <th className="text-left py-2.5 px-2 text-cyan-400 font-medium uppercase text-[11px] tracking-wider">
                     Event
                   </th>
-                  <th className="text-left p-3 text-cyan-400 font-medium uppercase text-xs tracking-wider">
+                  <th className="text-left py-2.5 px-2 text-cyan-400 font-medium uppercase text-[11px] tracking-wider">
                     Detail
                   </th>
-                  <th className="text-left p-3 text-cyan-400 font-medium uppercase text-xs tracking-wider whitespace-nowrap">
-                    <div className="flex items-center gap-2">
-                      <Shield className="w-3 h-3" />
-                      Decision
-                    </div>
+                  <th className="text-left py-2.5 px-2 text-cyan-400 font-medium uppercase text-[11px] tracking-wider">
+                    Decision
                   </th>
-                  <th aria-hidden="true" className="p-3" />
-                  <th className="text-left p-3 text-cyan-400 font-medium uppercase text-xs tracking-wider whitespace-nowrap">Policy</th>
+                  <th className="py-2.5 px-2 text-cyan-400 font-medium uppercase text-[11px] tracking-wider text-center">
+                    #
+                  </th>
+                  <th className="py-2.5 px-2" />
                 </tr>
               </thead>
               <tbody>
                 {rowVirtualizer.getVirtualItems().length > 0 && (
                   <tr>
-                    <td style={{ height: rowVirtualizer.getVirtualItems()[0].start, padding: 0 }} colSpan={6} />
+                    <td style={{ height: rowVirtualizer.getVirtualItems()[0].start, padding: 0 }} colSpan={7} />
                   </tr>
                 )}
                 {rowVirtualizer.getVirtualItems().map((virtualRow) => {
@@ -819,7 +819,7 @@ export function ActionsStream({ instanceId, onPolicyMutated }: { instanceId?: st
                         height: rowVirtualizer.getTotalSize() - (rowVirtualizer.getVirtualItems().at(-1)?.end ?? 0),
                         padding: 0,
                       }}
-                      colSpan={6}
+                      colSpan={7}
                     />
                   </tr>
                 )}
