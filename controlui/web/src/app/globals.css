@@ -98,7 +98,26 @@ body {
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--cyan-glow) / 0.3) transparent;
   }
+
+  /* Webkit scrollbar styling */
+  *::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: hsl(var(--cyan-glow) / 0.3);
+    border-radius: 3px;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--cyan-glow) / 0.5);
+  }
+
   body {
     @apply bg-background text-foreground;
     position: relative;
