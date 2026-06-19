@@ -252,7 +252,13 @@ func emitCgroupPath() error {
 	}
 
 	if resolved == "" {
-		return fmt.Errorf("cgroup path not detected; ensure container runs with --cgroupns host")
+		// Some environments (notably Docker Desktop with Kubernetes) run the
+		// container in a private cgroup namespace where /proc/self/cgroup reports
+		// "0::/", leaving no scopable cgroup. Rather than aborting the container,
+		// continue without writing cgroup-path: leashd degrades to proxy-only
+		// enforcement (kernel LSM disabled, L7 proxy still active). See issue #67.
+		os.Stderr.WriteString("leash-entry: WARNING: no scopable cgroup in /proc/self/cgroup (e.g. Docker Desktop Kubernetes); continuing without cgroup scoping — kernel LSM enforcement disabled, proxy enforcement remains active\n")
+		return nil
 	}
 
 	if err := os.WriteFile(cgroupPathFile, []byte(resolved+"\n"), 0o644); err != nil {

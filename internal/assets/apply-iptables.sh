@@ -85,6 +85,23 @@ if [ -n "$TARGET_CGROUP" ] && [ -n "$LEASH_PORT" ]; then
     fi
 fi
 
+# Degraded mode (#67): no target cgroup (e.g. Docker Desktop Kubernetes private
+# cgroup namespace, where /proc/self/cgroup is "0::/"). The control plane must
+# still be isolated, so block ALL local access to the port — the same
+# namespace-wide boundary as the cgroup fallback above.
+if [ -z "$TARGET_CGROUP" ] && [ -n "$LEASH_PORT" ]; then
+    echo "leash: WARNING: no target cgroup (degraded mode); blocking all local access to control plane port $LEASH_PORT" >&2
+    if ! ensure_rule -t filter -C OUTPUT -p tcp --dport "$LEASH_PORT" -j REJECT --reject-with tcp-reset; then
+        if iptables_cmd -t filter -A OUTPUT -p tcp --dport "$LEASH_PORT" -j REJECT --reject-with tcp-reset 2>&1; then
+            echo "leash: blocked local access to control plane port $LEASH_PORT (degraded, no cgroup)"
+        else
+            echo "leash: FATAL: could not apply control plane isolation (degraded mode)" >&2
+            echo "leash: This security control is required to prevent target container from accessing leashd API" >&2
+            exit 1
+        fi
+    fi
+fi
+
 # Report summary and exit successfully even if some rules failed
 # (we log warnings above for failed rules)
 if [ "$RULE_ERRORS" -gt 0 ]; then

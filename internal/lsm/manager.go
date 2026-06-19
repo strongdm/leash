@@ -158,6 +158,14 @@ func (m *LSMManager) UpdateRuntimeRules(policies *PolicySet) error {
 	m.reloadMutex.Lock()
 	defer m.reloadMutex.Unlock()
 
+	if m.cgroupPath == "" {
+		// Degraded mode: without a scopable cgroup we cannot attach cgroup-scoped
+		// BPF-LSM programs (they would govern the whole host, not the target).
+		// Skip kernel enforcement entirely; the proxy layer still enforces L7
+		// policy. See internal/leashd/runtime.go preFlight and issue #67.
+		return nil
+	}
+
 	if err := m.updateOpenLSM(policies); err != nil {
 		return err
 	}

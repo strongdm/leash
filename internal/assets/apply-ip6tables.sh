@@ -86,6 +86,22 @@ if [ -n "$TARGET_CGROUP" ] && [ -n "$LEASH_PORT" ]; then
     fi
 fi
 
+# Degraded mode (#67): no target cgroup (e.g. Docker Desktop Kubernetes private
+# cgroup namespace). The control plane must still be isolated, so block ALL local
+# access to the port — the same namespace-wide boundary as the cgroup fallback above.
+if [ -z "$TARGET_CGROUP" ] && [ -n "$LEASH_PORT" ]; then
+    echo "leash: WARNING: no target cgroup (degraded mode); blocking all local access to control plane port $LEASH_PORT (IPv6)" >&2
+    if ! ensure_rule -t filter -C OUTPUT -p tcp --dport "$LEASH_PORT" -j REJECT --reject-with tcp-reset; then
+        if ip6tables_cmd -t filter -A OUTPUT -p tcp --dport "$LEASH_PORT" -j REJECT --reject-with tcp-reset 2>&1; then
+            echo "leash: blocked local access to control plane port $LEASH_PORT (degraded, no cgroup, IPv6)"
+        else
+            echo "leash: FATAL: could not apply control plane isolation (degraded mode, IPv6)" >&2
+            echo "leash: This security control is required to prevent target container from accessing leashd API" >&2
+            exit 1
+        fi
+    fi
+fi
+
 # Report summary and exit successfully even if some rules failed
 if [ "$RULE_ERRORS" -gt 0 ]; then
     echo "leash: WARNING: $RULE_ERRORS ip6tables rule(s) failed to apply (IPv6 network interception may be incomplete)" >&2

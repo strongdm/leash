@@ -256,18 +256,25 @@ func preFlight(cfg *runtimeConfig) error {
 	}
 
 	if strings.TrimSpace(cfg.CgroupPath) == "" {
-		return fmt.Errorf("cgroup path required (set --cgroup)")
-	}
-	info, err := os.Stat(cfg.CgroupPath)
-	if err != nil {
-		return fmt.Errorf("invalid cgroup path %q: %w", cfg.CgroupPath, err)
-	}
-	if !info.IsDir() {
-		return fmt.Errorf("invalid cgroup path %q: not a directory", cfg.CgroupPath)
-	}
-	controllersPath := filepath.Join(cfg.CgroupPath, "cgroup.controllers")
-	if _, err := os.Stat(controllersPath); err != nil {
-		return fmt.Errorf("invalid cgroup path %q: %v", cfg.CgroupPath, err)
+		// Degraded mode: no scopable cgroup (e.g. Docker Desktop Kubernetes, where
+		// the container's private cgroup namespace reports "0::/"). Rather than
+		// failing to start, run proxy-only: kernel BPF-LSM enforcement is disabled
+		// but the MITM proxy still enforces L7 policy, and the control-plane block
+		// falls back to a namespace-wide rule. Mirrors the cgroup-unavailable
+		// network fallback (#66). See issue #67.
+		log.Println("leash: WARNING: no cgroup path; running in degraded proxy-only mode — kernel LSM enforcement (file/exec/connect) disabled, L7 proxy enforcement remains active")
+	} else {
+		info, err := os.Stat(cfg.CgroupPath)
+		if err != nil {
+			return fmt.Errorf("invalid cgroup path %q: %w", cfg.CgroupPath, err)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("invalid cgroup path %q: not a directory", cfg.CgroupPath)
+		}
+		controllersPath := filepath.Join(cfg.CgroupPath, "cgroup.controllers")
+		if _, err := os.Stat(controllersPath); err != nil {
+			return fmt.Errorf("invalid cgroup path %q: %v", cfg.CgroupPath, err)
+		}
 	}
 
 	logPath := strings.TrimSpace(cfg.LogPath)
@@ -308,7 +315,7 @@ func preFlight(cfg *runtimeConfig) error {
 	if privateDir == "" {
 		return fmt.Errorf("LEASH_PRIVATE_DIR environment variable is required")
 	}
-	info, err = os.Stat(privateDir)
+	info, err := os.Stat(privateDir)
 	if err != nil {
 		return fmt.Errorf("validate LEASH_PRIVATE_DIR %q: %w", privateDir, err)
 	}
