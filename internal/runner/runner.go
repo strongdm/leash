@@ -1973,11 +1973,24 @@ func (r *runner) launchTargetContainer(ctx context.Context, stopSignal string) e
 	}
 	args = append(args, r.cfg.targetImage)
 	r.logContainerConfig("target", targetMounts, targetEnv)
+	// Do not cancel the Docker client while the daemon may still be creating the
+	// container. Complete the bounded request, then honor caller cancellation so
+	// lifecycle cleanup can remove a container whose creation is fully settled.
+	launchCtx := context.WithoutCancel(ctx)
+	cancelLaunch := func() {}
+	if r.cfg.bootstrapTimeout > 0 {
+		launchCtx, cancelLaunch = context.WithTimeout(launchCtx, r.cfg.bootstrapTimeout)
+	}
+	defer cancelLaunch()
 	r.targetLaunchUncertain = true
-	if err := r.runDocker(ctx, args...); err != nil {
+	if err := r.runDocker(launchCtx, args...); err != nil {
+		r.targetLaunchUncertain = launchCtx.Err() != nil
 		return err
 	}
 	r.targetLaunchUncertain = false
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	// Print final port mappings
 	for _, ps := range r.opts.publishes {
 		if ps.Proto == "udp" {
