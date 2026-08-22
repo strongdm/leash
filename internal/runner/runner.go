@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/strongdm/leash/internal/assets"
@@ -142,11 +143,12 @@ type runner struct {
 	opts options
 	cfg  config
 
-	verbose         bool
-	shareDirCreated bool
-	keepContainers  bool
-	selinuxRelabel  bool
-	selinuxChecked  bool
+	verbose               bool
+	shareDirCreated       bool
+	keepContainers        bool
+	targetLaunchUncertain bool
+	selinuxRelabel        bool
+	selinuxChecked        bool
 
 	logger        *log.Logger
 	mountState    *mountState
@@ -272,7 +274,7 @@ func execute(cmdName string, args []string) error {
 	defer cancel()
 
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt)
+	signal.Notify(sigCh, terminationSignals()...)
 	defer signal.Stop(sigCh)
 
 	var interrupted int32
@@ -293,6 +295,10 @@ func execute(cmdName string, args []string) error {
 		return err
 	}
 	return nil
+}
+
+func terminationSignals() []os.Signal {
+	return []os.Signal{os.Interrupt, syscall.SIGTERM}
 }
 
 var errShowUsage = errors.New("show usage")
@@ -1949,9 +1955,11 @@ func (r *runner) launchTargetContainer(ctx context.Context, stopSignal string) e
 	}
 	args = append(args, r.cfg.targetImage)
 	r.logContainerConfig("target", targetMounts, targetEnv)
+	r.targetLaunchUncertain = true
 	if err := r.runDocker(ctx, args...); err != nil {
 		return err
 	}
+	r.targetLaunchUncertain = false
 	// Print final port mappings
 	for _, ps := range r.opts.publishes {
 		if ps.Proto == "udp" {
@@ -2511,8 +2519,8 @@ func (r *runner) execInteractive(shellBin, cmd string) (int, error) {
 }
 
 // finalizeSession keeps two concerns separate:
-//   - Container teardown is best-effort. Cleanup failures log under verbose mode
-//     but never override the exit status returned by the leashed command.
+//   - Cleanup failures are returned when the leashed command succeeded so callers
+//     never mistake an incomplete teardown for success.
 //   - The leashed command's exit code flows back to the caller unchanged, preserving
 //     distinct status values.
 func (r *runner) finalizeSession(stopErr error, exitCode int) error {
@@ -2523,6 +2531,9 @@ func (r *runner) finalizeSession(stopErr error, exitCode int) error {
 		// Do not wrap inside fmt.Errorf; Main() unwraps ExitCodeError so it can
 		// call os.Exit with the original status.
 		return &ExitCodeError{code: exitCode}
+	}
+	if stopErr != nil {
+		return fmt.Errorf("stop containers: %w", stopErr)
 	}
 	return nil
 }
@@ -2568,14 +2579,47 @@ func (r *runner) stopContainers(ctx context.Context) error {
 		}
 	}
 
-	remove := func(name string) {
-		cmd := exec.CommandContext(ctx, "docker", "rm", "-f", name)
-		cmd.Stdout = io.Discard
-		cmd.Stderr = io.Discard
-		_ = cmd.Run()
+	remove := func(name string) error {
+		if strings.TrimSpace(name) == "" {
+			return nil
+		}
+		_, err := commandOutput(ctx, "docker", "rm", "-f", name)
+		if isNoSuchObjectError(err) {
+			return nil
+		}
+		return err
 	}
-	remove(r.cfg.leashContainer)
-	remove(r.cfg.targetContainer)
+	var cleanupErr error
+	cleanupErr = errors.Join(cleanupErr, remove(r.cfg.leashContainer))
+	cleanupErr = errors.Join(cleanupErr, remove(r.cfg.targetContainer))
+
+	// Canceling `docker run` only terminates the client. The daemon may still
+	// create the named container after the client exits, so reconcile the name
+	// for a bounded period when the target launch did not complete normally.
+	if r.targetLaunchUncertain {
+		const (
+			maxChecks    = 50
+			stableChecks = 10
+		)
+		stableAbsent := 0
+		for check := 0; check < maxChecks && stableAbsent < stableChecks; check++ {
+			time.Sleep(canceledLaunchCleanupDelay)
+			exists, err := r.containerExists(ctx, r.cfg.targetContainer)
+			if err != nil {
+				cleanupErr = errors.Join(cleanupErr, fmt.Errorf("check target container during cleanup: %w", err))
+				break
+			}
+			if !exists {
+				stableAbsent++
+				continue
+			}
+			stableAbsent = 0
+			if err := remove(r.cfg.targetContainer); err != nil {
+				cleanupErr = errors.Join(cleanupErr, fmt.Errorf("remove late-created target container: %w", err))
+				break
+			}
+		}
+	}
 
 	if r.cfg.shareDir != "" && !r.cfg.shareDirFromEnv {
 		if r.shareDirCreated || strings.HasPrefix(r.cfg.shareDir, r.cfg.workDir+string(os.PathSeparator)) {
@@ -2592,8 +2636,10 @@ func (r *runner) stopContainers(ctx context.Context) error {
 			r.debugf("failed to remove work dir %s: %v", r.cfg.workDir, err)
 		}
 	}
-	return nil
+	return cleanupErr
 }
+
+var canceledLaunchCleanupDelay = 100 * time.Millisecond
 
 func (r *runner) showStatus(ctx context.Context) error {
 	out, err := commandOutput(ctx, "docker", "ps", "--format", "table {{.Names}}\t{{.Status}}\t{{.Ports}}")
