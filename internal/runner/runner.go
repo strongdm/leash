@@ -1189,6 +1189,15 @@ func (r *runner) startContainers(ctx context.Context) error {
 
 	for {
 		if err := r.launchTargetContainer(ctx, stopSignal); err != nil {
+			if isContainerNameConflictError(err) {
+				if assignErr := r.assignContainerNames(ctx); assignErr != nil {
+					return r.finishLifecycle(ctx, 0, assignErr)
+				}
+				if r.logger != nil {
+					r.logger.Printf("Retrying with container names %s/%s after conflict.", r.cfg.targetContainer, r.cfg.leashContainer)
+				}
+				continue
+			}
 			retry, retryErr := r.handleListenPortRetry(ctx, err)
 			if retryErr != nil {
 				return r.finishLifecycle(ctx, 0, retryErr)
@@ -1443,6 +1452,15 @@ func isPortConflictError(err error) bool {
 	default:
 		return false
 	}
+}
+
+func isContainerNameConflictError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "container name") &&
+		strings.Contains(msg, "already in use")
 }
 
 // Additional helper methods will be defined below.

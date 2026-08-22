@@ -176,3 +176,22 @@ func TestAllocateListenPortExplicitFailure(t *testing.T) {
 		t.Fatalf("explicit listen port should remain unchanged: got %q want %q", got, want)
 	}
 }
+
+func TestContainerNameConflictDetection(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "docker conflict", err: fmt.Errorf(`docker: Error response from daemon: Conflict. The container name "/work" is already in use by container "abc"`), want: true},
+		{name: "port conflict", err: fmt.Errorf("port is already allocated"), want: false},
+		{name: "nil", err: nil, want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := isContainerNameConflictError(test.err); got != test.want {
+				t.Fatalf("isContainerNameConflictError() = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
