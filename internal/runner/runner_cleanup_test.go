@@ -53,7 +53,7 @@ func TestStopContainersReapsTargetCreatedAfterCanceledLaunch(t *testing.T) {
 				return "", fmt.Errorf("No such object: %s", args[len(args)-1])
 			}
 			inspectCalls++
-			if inspectCalls == 2 {
+			if inspectCalls == 75 {
 				targetExists = true
 			}
 			if targetExists {
@@ -87,6 +87,9 @@ func TestStopContainersReapsTargetCreatedAfterCanceledLaunch(t *testing.T) {
 	}
 	if removeCalls != 1 {
 		t.Fatalf("late-created target removal calls: got %d want 1", removeCalls)
+	}
+	if inspectCalls != 102 {
+		t.Fatalf("cleanup did not observe the full reconciliation window: got %d checks want 102", inspectCalls)
 	}
 }
 

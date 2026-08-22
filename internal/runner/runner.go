@@ -2597,12 +2597,8 @@ func (r *runner) stopContainers(ctx context.Context) error {
 	// create the named container after the client exits, so reconcile the name
 	// for a bounded period when the target launch did not complete normally.
 	if r.targetLaunchUncertain {
-		const (
-			maxChecks    = 50
-			stableChecks = 10
-		)
-		stableAbsent := 0
-		for check := 0; check < maxChecks && stableAbsent < stableChecks; check++ {
+		const maxChecks = 100
+		for check := 0; check < maxChecks; check++ {
 			time.Sleep(canceledLaunchCleanupDelay)
 			exists, err := r.containerExists(ctx, r.cfg.targetContainer)
 			if err != nil {
@@ -2610,15 +2606,22 @@ func (r *runner) stopContainers(ctx context.Context) error {
 				break
 			}
 			if !exists {
-				stableAbsent++
 				continue
 			}
-			stableAbsent = 0
 			if err := remove(r.cfg.targetContainer); err != nil {
 				cleanupErr = errors.Join(cleanupErr, fmt.Errorf("remove late-created target container: %w", err))
 				break
 			}
 		}
+	}
+	exists, err := r.containerExists(ctx, r.cfg.targetContainer)
+	if err != nil {
+		cleanupErr = errors.Join(cleanupErr, fmt.Errorf("verify target container cleanup: %w", err))
+	} else if exists {
+		cleanupErr = errors.Join(cleanupErr, fmt.Errorf(
+			"target container %q remained after cleanup reconciliation",
+			r.cfg.targetContainer,
+		))
 	}
 
 	if r.cfg.shareDir != "" && !r.cfg.shareDirFromEnv {
